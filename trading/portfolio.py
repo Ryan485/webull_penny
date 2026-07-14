@@ -3,6 +3,7 @@ In-memory portfolio state with thread-safe access.
 Tracks open positions, closed trades, daily P&L, and trade log.
 Persists state to JSON so the dashboard can read it.
 """
+import csv
 import json
 import logging
 import os
@@ -141,6 +142,7 @@ class Portfolio:
             self.closed_trades.append(trade)
             self.daily_pnl += pnl
             self._save_state()
+        self._log_outcome(trade)
         logger.info(
             f"EXIT {ticker} @ ${exit_price:.2f} ({reason}) "
             f"PnL=${pnl:+.2f} ({pnl_pct:+.1%})"
@@ -244,6 +246,54 @@ class Portfolio:
             self.daily_pnl = sum(t.pnl for t in todays)
         except Exception as e:
             logger.warning(f"State load failed: {e}")
+
+    # Column order matches the backtest trade CSVs (backtest_viral_trades.csv)
+    # so live and simulated outcomes share one schema and join on date+ticker.
+    _OUTCOME_COLS = ["date", "ticker", "strategy", "entry_time", "exit_time",
+                     "entry", "exit", "shares", "pnl", "pnl_pct", "reason", "notes"]
+
+    def _log_outcome(self, trade: "ClosedTrade") -> None:
+        """
+        Append one closed LIVE trade to the persistent outcomes ledger.
+        Append-only and never rewritten, so it survives the nightly state
+        reset and accumulates a labeled dataset for strategy refinement.
+        Best-effort — a logging failure must never break the trade close.
+        """
+        try:
+            os.makedirs("logs", exist_ok=True)
+            # Split the ISO timestamps into date + HH:MM to match the
+            # backtest CSV format (date column is the join key vs research).
+            def _date(iso: str) -> str:
+                return str(iso)[:10]
+
+            def _hhmm(iso: str) -> str:
+                try:
+                    return datetime.fromisoformat(iso).strftime("%H:%M")
+                except Exception:
+                    return str(iso)[11:16]
+
+            row = {
+                "date": _date(trade.entry_time),
+                "ticker": trade.ticker,
+                "strategy": trade.strategy,
+                "entry_time": _hhmm(trade.entry_time),
+                "exit_time": _hhmm(trade.exit_time),
+                "entry": round(trade.entry_price, 4),
+                "exit": round(trade.exit_price, 4),
+                "shares": trade.shares,
+                "pnl": round(trade.pnl, 2),
+                "pnl_pct": round(trade.pnl_pct * 100, 2),
+                "reason": trade.exit_reason,
+                "notes": trade.notes,
+            }
+            new_file = not os.path.exists(config.OUTCOMES_FILE)
+            with open(config.OUTCOMES_FILE, "a", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=self._OUTCOME_COLS)
+                if new_file:
+                    writer.writeheader()
+                writer.writerow(row)
+        except Exception as e:
+            logger.warning(f"Outcome log failed: {e}")
 
     def _write_log(self, msg: str) -> None:
         os.makedirs("logs", exist_ok=True)

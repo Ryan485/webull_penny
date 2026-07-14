@@ -11,7 +11,11 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
 
 ## Run
 - Bot: `py -3.12 main.py` (always py -3.12, not `python`) — restart with Ctrl+C then rerun
-- Dashboard: http://localhost:8050 (8060 belongs to the crypto bot)
+- Dashboard: http://localhost:8050 (8060 belongs to the crypto bot). Redesigned
+  2026-07-14 (owner's Korean-bot reference): stat cards + flat BUY/SELL trades
+  table, 5s refresh; the candlestick chart was REMOVED on request — don't
+  re-add it. After a bot restart, hard-refresh the browser tab (Ctrl+Shift+R)
+  or stale cached callbacks throw KeyErrors.
 - Debug scan/signals: `py -3.12 debug_entries.py`
 - Backtests: `py -3.12 backtest_viral.py` (viral-research universe),
   `py -3.12 backtest_1y.py` (1-year, resumable via logs/reports checkpoint files)
@@ -60,6 +64,11 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   (kept only in backtesting/engine.py).
 - `trading/portfolio.py` — per-ticker daily caps (3 trades, 2 stops), 30-min cooldowns
   after any exit, state restored across restarts (incl. closed_today so caps survive).
+  Every closed LIVE trade is also appended to `logs/trade_outcomes.csv`
+  (append-only, survives the nightly state reset; same schema as the
+  backtest trade CSVs so live+backtest join on date+ticker vs research) —
+  added 2026-07-13 so real paper-trading outcomes accumulate for strategy
+  refinement (state.json alone is wiped daily; .md reports aren't queryable).
 - `main.py` — entry gates in order: after 10:00 ET, before 15:30 ET, catalyst != "unknown",
   close ≥ session VWAP, caps/cooldowns. Exits: trailing stop 0.75R below high-water,
   armed once +1R is reached (no fixed take-profit). The trail used to start at +1.5R
@@ -148,6 +157,18 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   12:25, target 1.65 above a ~1.47 wall tagged twice, rode to -9.4%.
   Backtest with cap: 110 trades, **+$27.0K, PF 2.24, 59% WR, $245/trade**
   (vs +$25.5K / PF 2.20 uncapped); take_profit exits 11 trades +$6.8K.
+- **Stoch "deeper" gate (2026-07-14, AGEN):** owner rule — the fresh stoch
+  trough must be at least as deep as the lowest %K of the prior 30 bars
+  (+5 pts tolerance; `DB_STOCH_GATE=deeper`, `DB_STOCH_DEEPER_TOL=5`, now
+  the default). A shallower dip than the last one is a fake second bottom
+  (AGEN 07-13 11:41, -2.8%). Sweep: turn PF 2.28/$231 -> deeper5
+  **PF 2.75, $261/trade, 61% WR, +$33.4K on 128 trades**; tol=0
+  over-tightens (PF 2.46). Caveat: IEX vs consolidated stoch values
+  differ on thin names — the gate sees IEX.
+- **Entry chase guard (2026-07-13, FTRK):** market buys are skipped if the
+  live quote runs >1.5% above the signal price (`MAX_ENTRY_CHASE_PCT`).
+  FTRK 14:29: signal 0.6332 (legal, 1.4% over the 0.6247 level) but the
+  market order filled 0.66 (+4.2%) into a vertical spike, then -6.9%.
 - **W max-depth cap (2026-07-13, SOBR):** sweep of DB_MAX_DEPTH_PCT on the
   grown universe (13 sessions, 06-26→07-13): uncapped 145 trades +$30.0K
   PF 1.94 / cap 0.10 → PF 2.12 but drops winners / cap 0.15 → PF 2.13 /

@@ -89,10 +89,16 @@ RETEST_MIN_HOLD = 0.5            # pullback low must hold above halfway between
 #   w    - "turn" plus an earlier trough <= STOCH_TROUGH_MAX within
 #          STOCH_W_LOOKBACK bars with a peak >= STOCH_W_PEAK_MIN between
 #          (a full stochastic W)
-# Default "turn" chosen 2026-07-07 after backtest: PF 2.20 vs 1.38 ungated,
-# expectancy $260 vs $131/trade; "w" scored the same (2.23) but adds
-# complexity for no measurable edge. Override with env DB_STOCH_GATE.
-STOCH_GATE_MODE = os.environ.get("DB_STOCH_GATE", "turn")
+#   deeper - "turn" plus the fresh trough must be at least as deep as the
+#          lowest %K of the prior STOCH_W_LOOKBACK bars (+ tolerance).
+#          Owner rule from AGEN 2026-07-13 11:41 (-2.8%): "the middle stoch
+#          is higher than the previous low — this cannot be W". A shallower
+#          dip than the last one is a fake second bottom.
+# Default "deeper" tol=5 chosen 2026-07-14 (owner rule, AGEN): sweep vs
+# "turn" baseline PF 2.28/$231 -> deeper5 PF 2.75/$261 on 15 fewer trades;
+# tol=0 over-tightens (PF 2.46, drops winners). Override with DB_STOCH_GATE.
+STOCH_GATE_MODE = os.environ.get("DB_STOCH_GATE", "deeper")
+STOCH_DEEPER_TOL = float(os.environ.get("DB_STOCH_DEEPER_TOL", "5"))
 STOCH_TROUGH_MAX = 30.0
 STOCH_ENTRY_MAX = 55.0
 STOCH_W_LOOKBACK = 30
@@ -113,6 +119,12 @@ def _stoch_second_bottom(df: pd.DataFrame) -> bool:
         return False
     if STOCH_GATE_MODE == "turn":
         return True
+    if STOCH_GATE_MODE == "deeper":
+        hist = k.iloc[-(STOCH_W_LOOKBACK + 4):-4].dropna()
+        if len(hist) < 5:
+            return True   # no prior history to compare against
+        prev_trough = float(hist.min())
+        return trough <= prev_trough + STOCH_DEEPER_TOL
     # "w": walk back from the current trough — first find a peak, then an
     # earlier trough below it
     hist = k.iloc[-(STOCH_W_LOOKBACK + 4):-4].dropna().values

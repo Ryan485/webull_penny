@@ -195,6 +195,17 @@ def check_entries(state: BotState, portfolio: Portfolio, broker) -> None:
 
             # Confirm price from broker (more accurate than last candle close)
             live_price = broker.get_quote(ticker) or best.entry_price
+            # Chase guard (added 2026-07-13, FTRK): a market order placed into
+            # a vertical spike fills way above the signal (FTRK 14:29: signal
+            # 0.6332, fill 0.66 = +4.2%, then it collapsed for -6.9%). If the
+            # live quote has already run more than MAX_ENTRY_CHASE_PCT above
+            # the signal bar's price, the entry is gone — skip, don't chase.
+            if live_price > best.entry_price * (1 + config.MAX_ENTRY_CHASE_PCT):
+                logger.info(
+                    f"SKIP {ticker}: price ran {live_price:.4f} vs signal "
+                    f"{best.entry_price:.4f} (+{(live_price/best.entry_price-1)*100:.1f}%), not chasing"
+                )
+                continue
             row = df.iloc[-1]
             atr = row.get("atr")
             if not atr or atr <= 0:

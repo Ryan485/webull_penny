@@ -64,5 +64,13 @@ STRATEGY1_CLOSE = "10:30"
 
 # --- Dashboard ---
 DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", 8050))
+# Max the live quote may sit above the signal price before a buy is skipped
+# (anti-chase; FTRK 2026-07-13 filled +4.2% above signal into a spike top).
+MAX_ENTRY_CHASE_PCT = float(os.getenv("MAX_ENTRY_CHASE_PCT", 0.015))
 LOG_FILE = "logs/trades.log"
 STATE_FILE = "logs/state.json"
+# Append-only ledger of every LIVE closed trade. Survives the daily state
+# reset (state.json is wiped nightly) so real paper-trading outcomes
+# accumulate for strategy refinement. Same schema as the backtest trade
+# CSVs (date+ticker key) so live and backtest data join against research.
+OUTCOMES_FILE = "logs/trade_outcomes.csv"
