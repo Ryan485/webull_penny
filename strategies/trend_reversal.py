@@ -2,11 +2,19 @@
 Strategy 3: Trend Reversal — Downtrend → Flat → Up (all day)
 Was falling, consolidated sideways, now turning up.
 """
+import os
 from typing import Optional
 import pandas as pd
 
 from strategies.base import BaseStrategy, Signal
 from data.indicators import latest, prev
+
+
+# Owner rule candidate (2026-07-14, VMAR): "trend reversal should trigger
+# only after sideways consolidation". The flattening check exists but is a
+# mere +1 — VMAR scored 3 without it and bought the fade of a parabolic
+# spike at the top of the range. Flag for backtesting; 0 = frozen v1.0.
+REQUIRE_FLAT = os.environ.get("TR_REQUIRE_FLAT", "0") == "1"
 
 
 class TrendReversal(BaseStrategy):
@@ -44,11 +52,16 @@ class TrendReversal(BaseStrategy):
         # 2. Flattening: find the day's low, check that candles since then are tight (≤ 2% range)
         low_idx = df["low"].idxmin()
         since_low = df.loc[low_idx:]
+        is_flat = False
         if len(since_low) >= 5:
             rng = (since_low["high"].max() - since_low["low"].min()) / since_low["close"].mean()
             if rng <= 0.02:
+                is_flat = True
                 score += 1
                 notes.append(f"flat_since_low={rng:.1%}({len(since_low)}bars)")
+        if REQUIRE_FLAT and not is_flat:
+            return Signal(ticker=ticker, strategy=self.name, score=0,
+                          notes="no_flat_base")
 
         # 3. MA5 crosses above MA10 on current candle
         ma5_now = row.get("ma5")

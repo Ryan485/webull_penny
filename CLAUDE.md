@@ -212,6 +212,26 @@ version string if logic changes so forward-test samples don't mix.**
   same total PnL as uncapped on 13 fewer mostly-losing trades, double_bottom
   +$7.6K → +$9.5K. Blocks SOBR (23.4% deep) and JZXN (52%). Don't tighten
   below 0.20 without a new sweep — 0.10 already cuts winners.
+- **Flat-base hard gate experiment (2026-07-14, VMAR):** first out-of-sample
+  loss under v1.0 — trend_reversal bought VMAR 10:00 at the top of a
+  parabolic spike (+48% over prior close, right under a 2.088 shelf) and
+  stopped -10.5%. The premarket fade read as "prior downtrend"; the flat/
+  sideways component of the strategy is only +1, not required, and VMAR
+  scored 3 without it. Owner rule: reversal should need sideways
+  consolidation first. Tested via `TR_REQUIRE_FLAT=1` (env flag, default 0):
+  the 2%-range flat base NEVER occurs on viral pennies — trend_reversal
+  went to ZERO trades. Same-universe comparison (117 ticker-days):
+  baseline 125 trades +$26.3K PF 2.28 vs gated 100 trades +$21.9K PF 2.69
+  (stop bleed -$20.6K -> -$12.9K; freed slots pushed double_bottom 28->33
+  trades +$2.4K). So the honest choice is binary: keep trend_reversal
+  as-is or retire it like gap_bounce — a softer flat band would be a new
+  knob tuned on exhausted data. DECISION PENDING with owner; v1.0 stays
+  frozen with the flag at 0 meanwhile. Also on this trade: quote 2.03
+  passed the 1.5% chase guard but the market order filled 2.09 —
+  risk_overrun_pct logged +59.1%; if overruns recur, the fix is limit
+  orders, not filters. The recovery W at 10:25-10:30 was missed because
+  of the 30-min stop cooldown (10:10 stop locked the ticker to 10:40),
+  not signal logic.
 - Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.
