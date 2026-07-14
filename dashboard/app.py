@@ -98,11 +98,11 @@ def _log_tail(n: int = LOG_LINES) -> list:
         return []
 
 
-def _stat_card(label: str, value: str, cls: str = "", card_cls: str = ""):
+def _stat_card(label: str, value: str, cls: str = ""):
     return html.Div([
         html.Div(label, className="label"),
         html.Div(value, className=f"value {cls}".strip()),
-    ], className=f"card-kr {card_cls}".strip())
+    ], className="card-kr")
 
 
 def _sign_cls(v: float) -> str:
@@ -137,17 +137,13 @@ def update_all(n):
     # ── Stat cards ──
     acct = state.get("account_value", config.ACCOUNT_SIZE)
     dpnl = state.get("daily_pnl", 0.0)
-    unreal = sum(p.get("unrealized_pnl", 0) for p in positions.values())
     wins = sum(1 for t in closed if t.get("pnl", 0) > 0)
     win_rate = f"{100 * wins / len(closed):.0f}%" if closed else "—"
     halted = state.get("halt", False)
 
     cards = [
         _stat_card("Account ($)", f"{acct:,.0f}"),
-        _stat_card("Daily P&L ($)", f"{dpnl:+,.0f}", _sign_cls(dpnl),
-                   card_cls=f"card-{_sign_cls(dpnl)}"),
-        _stat_card("Unrealized ($)", f"{unreal:+,.0f}", _sign_cls(unreal),
-                   card_cls=f"card-{_sign_cls(unreal)}"),
+        _stat_card("Daily P&L ($)", f"{dpnl:+,.0f}", _sign_cls(dpnl)),
         _stat_card("Buys", str(len(closed) + len(positions))),
         _stat_card("Sells", str(len(closed))),
         _stat_card("Win rate", win_rate),
@@ -176,7 +172,7 @@ def update_all(n):
                          className="label"),
                 html.Button("Sell Now", className="sellbtn",
                             id={"type": "sell-btn", "ticker": ticker}),
-            ], className=f"card-kr card-{_sign_cls(pnl)}"))
+            ], className="card-kr"))
         pos_block = html.Div([
             html.H1("Open Positions", className="section"),
             html.Div(pos_cards, className="cards"),
