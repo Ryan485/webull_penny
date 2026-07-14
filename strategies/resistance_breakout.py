@@ -18,6 +18,7 @@ Rules (1-minute candles, rolling 120-bar window):
     bar bouncing 0.5 ATR off the pullback low (no volume gate; pullbacks
     are quiet by nature). Stop: 0.5 ATR below the pullback low.
 """
+import os
 from typing import List, Optional
 
 import pandas as pd
@@ -45,6 +46,13 @@ TARGET_R = 2.0
 RETEST_MAX_BARS = 30             # break must be within the last 30 bars
 RETEST_MAX_DEPTH_ATR = 2.0       # pullback may dip at most 2 ATR below the level
 RETEST_CONFIRM_ATR = 0.5         # close must be >= pullback low + 0.5 ATR
+
+# Experiment flag (2026-07-14, LHAI): a box-top retest below session VWAP
+# (level 1.252 vs VWAP 1.311 dragged up by the 9:30 spike) is the entry the
+# owner wants, but the per-signal VWAP gate blocks it. Same argument that
+# won for early W entries (below-VWAP structure entry with a tight stop).
+# Default 0 = frozen behavior; backtest before ever enabling live.
+RETEST_IGNORE_VWAP = os.environ.get("RB_RETEST_IGNORE_VWAP", "0") == "1"
 
 
 PIVOT_TIE_PCT = 0.001            # equal highs ARE the level — ties don't disqualify
@@ -205,6 +213,7 @@ class ResistanceBreakout(BaseStrategy):
                         ),
                         stop_price=stop,
                         target_price=close + TARGET_R * (close - stop),
+                        ignore_vwap=RETEST_IGNORE_VWAP,
                     )
             nearest = min((lv for lv, _ in levels), key=lambda lv: abs(lv - close))
             state = "rb_extended" if close > nearest * MAX_ENTRY_EXTENSION else "rb_pending"

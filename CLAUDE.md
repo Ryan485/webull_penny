@@ -262,6 +262,19 @@ same-universe backtest: 103 trades, +$24.0K, PF 2.90, 60% WR, $233/trade.
   orders, not filters. The recovery W at 10:25-10:30 was missed because
   of the 30-min stop cooldown (10:10 stop locked the ticker to 10:40),
   not signal logic.
+- **rb-retest VWAP waiver tested and REJECTED (2026-07-14, LHAI):** LHAI's
+  box-top retest at ~12:20 (level 1.252, price 1.27, VWAP 1.311) was the
+  entry the owner wanted; the per-signal VWAP gate blocks it. Tested
+  waiving VWAP for rb retest mode only (`RB_RETEST_IGNORE_VWAP=1`, env
+  flag, default 0): PF 2.90 -> 2.22, +$24.0K -> +$18.8K — the 12 extra
+  below-VWAP retests lose net AND displace better double_bottom entries
+  (33 -> 30 trades). Below-VWAP entries work for W bottoms, NOT for box
+  retests. Don't re-enable without new out-of-sample evidence. The real
+  LHAI blocker was IEX data starvation anyway: 10-18 min gaps between
+  prints (89 stale-data warnings 11:25-11:49 ET), unfixable in code —
+  SIP data at go-live. The owner's "box" rule (level tested multiple
+  times) is already rb's core requirement (2+ touches, 0.5% cluster,
+  >=10 bars apart).
 - Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.
