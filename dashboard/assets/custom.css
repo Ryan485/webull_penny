@@ -1,27 +1,110 @@
-/* Dark-theme fixes for dcc.Dropdown (react-select) */
-.Select-control,
-.Select-menu-outer,
-.Select-menu,
-.Select-option {
-    background-color: #222 !important;
-    color: #eee !important;
-    border-color: #444 !important;
+/* Design copied from the Korean bot dashboard
+   (C:\cashcow\korean_tradingbot\tradingbot\dashboard.py) on owner request
+   2026-07-14 — keep this look; the old dropdown CSS went with the chart. */
+
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #111 !important;
+    color: #ddd;
+    margin: 0;
+    padding: 20px;
 }
 
-.Select-option.is-focused {
-    background-color: #375a7f !important;
-    color: #fff !important;
+h1.section {
+    font-size: 18px;
+    margin: 0 0 4px;
+    font-weight: 600;
+    color: #ddd;
 }
 
-.Select-value-label,
-.Select-placeholder,
-.Select input > input {
-    color: #eee !important;
+.sub {
+    color: #888;
+    font-size: 12px;
+    margin-bottom: 16px;
 }
 
-.Select-arrow {
-    border-color: #999 transparent transparent !important;
+.cards {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
 }
+
+.card-kr {
+    background: #1c1c1c;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 10px 18px;
+    min-width: 110px;
+}
+
+.card-kr .label {
+    color: #888;
+    font-size: 11px;
+}
+
+.card-kr .value {
+    font-size: 20px;
+    font-weight: 600;
+    margin-top: 2px;
+    color: #ddd;
+}
+
+.pos { color: #4caf50; }
+.neg { color: #ef5350; }
+
+table.trades {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+    margin-bottom: 20px;
+}
+
+table.trades th,
+table.trades td {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid #222;
+}
+
+table.trades th {
+    color: #888;
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+td.side-BUY  { color: #42a5f5; font-weight: 600; }
+td.side-SELL { color: #ffb74d; font-weight: 600; }
+.ticker { color: #ddd; }
+
+#logs {
+    background: #181818;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 12px;
+    font-family: Consolas, monospace;
+    font-size: 11.5px;
+    white-space: pre-wrap;
+    height: 320px;
+    overflow-y: auto;
+    color: #aaa;
+}
+
+.logline.warn  { color: #ffb74d; }
+.logline.error { color: #ef5350; }
+
+.sellbtn {
+    background: #2a2a2a;
+    color: #ef5350;
+    border: 1px solid #ef5350;
+    border-radius: 5px;
+    font-size: 11px;
+    padding: 2px 10px;
+    margin-top: 4px;
+    cursor: pointer;
+}
+.sellbtn:hover { background: #ef5350; color: #fff; }
 
 /* Scrollbars that match the dark theme */
 ::-webkit-scrollbar {
