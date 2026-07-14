@@ -50,6 +50,9 @@ h1.section {
     color: #ddd;
 }
 
+.card-kr .value.pos { color: #4caf50; }
+.card-kr .value.neg { color: #ef5350; }
+
 .pos { color: #4caf50; }
 .neg { color: #ef5350; }
 
