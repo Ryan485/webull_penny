@@ -157,7 +157,7 @@ samples don't mix.** v1.0 (us-penny-v1.0-frozen-2026-07-14) lasted one live
 trade (VMAR): superseded same day by **us-penny-v1.1-structural-tr-2026-07-14**
 (trend_reversal rewritten as a structural neckline detector on owner
 directive — see the flat-base experiment entry in Validation). v1.1
-same-universe backtest: 102 trades, +$24.7K, PF 2.95, 60% WR, $242/trade.
+same-universe backtest: 103 trades, +$24.0K, PF 2.90, 60% WR, $233/trade.
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical
@@ -241,13 +241,22 @@ same-universe backtest: 102 trades, +$24.7K, PF 2.95, 60% WR, $242/trade.
   correctly: track the resistance level and neckline" (chart-pattern
   reference: iH&S / rounding bottom / cup & handle; no bullish wedge).
   Strategy rewritten structurally (see Architecture) as **v1.1**:
-  same universe, 102 trades +$24.7K **PF 2.95, 60% WR, $242/trade**;
-  trend_reversal itself 4 trades 4/4 wins +$2.7K (all rev_retest — the
-  breakout mode never filled in-sample, watch whether it fires live),
+  same universe, 103 trades +$24.0K **PF 2.90, 60% WR, $233/trade**;
+  trend_reversal itself 3 trades 3/3 wins +$1.5K (2 retest + 1 breakout),
   VMAR 07-14 produces ZERO trades under the new logic. Beats both
-  keep-old (PF 2.28) and retire (PF 2.69). Only 4 in-sample trades =
+  keep-old (PF 2.28) and retire (PF 2.69). Only 3 in-sample trades =
   thin evidence; live forward test judges it. The TR_REQUIRE_FLAT flag
-  was removed with the rewrite. Also on this trade: quote 2.03
+  was removed with the rewrite. A second external review of the rewrite
+  (2026-07-14) was triaged: its "look-ahead bias" claim is WRONG (the
+  backtest replays evaluate() bar-by-bar on completed candles, same as
+  live — pivots cannot appear until confirmed); entry-candle volume
+  (not break-candle) is the deliberate rb-matching convention; the one
+  accepted fix was the retest hold gate — pullback must hold the upper
+  half between right low and neckline (RETEST_MIN_HOLD=0.5, matching
+  double_bottom), which swapped BMNU's deep retest for its clean 11:48
+  breakout (+$973). Retest-recency and fixed downtrend-lookback ideas
+  were deferred to forward testing (tuning knobs on exhausted data).
+  Also on this trade: quote 2.03
   passed the 1.5% chase guard but the market order filled 2.09 —
   risk_overrun_pct logged +59.1%; if overruns recur, the fix is limit
   orders, not filters. The recovery W at 10:25-10:30 was missed because

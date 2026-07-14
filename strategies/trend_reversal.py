@@ -27,12 +27,16 @@ Rules (1-minute candles, rolling 120-bar window):
     the base low — same parabolic-spike cap as double_bottom (a 24-52%
     "base" is a collapse being misread, not a reversal; SOBR/JZXN).
   - BREAKOUT entry: close in [neck*1.002, neck*1.02], within 3 bars of
-    the first close above the neckline after the right low confirmed,
-    volume >= 1.5x average. Stop: right low - 0.5 ATR.
+    the first close above the neckline after the right low confirmed.
+    Volume gate is on the ENTRY candle (>= 1.5x average) — deliberately
+    the same convention as resistance_breakout: what matters is
+    participation at the fill, not at a candle we did not trade.
+    Stop: right low - 0.5 ATR.
   - RETEST entry: first break 4-30 bars old, price pulled back below the
-    neckline while holding above the right low, current bar green and
-    bouncing >= 0.5 ATR off the pullback low. Stop: pullback low
-    - 0.5 ATR. (Same convention as double_bottom/resistance_breakout.)
+    neckline while holding the UPPER HALF between the right low and the
+    neckline, current bar green and bouncing >= 0.5 ATR off the pullback
+    low. Stop: pullback low - 0.5 ATR. (Same convention as
+    double_bottom/resistance_breakout.)
   - Target: neckline + (neckline - base low), capped at overhead
     resistance (real take-profit there); capped reward < 0.5R = no trade.
 """
@@ -60,6 +64,11 @@ MIN_VOL_MULT = 1.5               # breakout volume >= 1.5x average
 STOP_ATR_MULT = 0.5
 RETEST_MAX_BARS = 30             # a break older than this is spent
 RETEST_CONFIRM_ATR = 0.5         # bounce off the pullback low must be >= 0.5 ATR
+RETEST_MIN_HOLD = 0.5            # pullback low must hold the upper half between
+                                 # the right low and the neckline — one cent above
+                                 # the right low is a failing breakout, not a
+                                 # retest (same convention as double_bottom;
+                                 # external review 2026-07-14)
 DOWNTREND_MIN_BARS = 10          # need history before the low to judge the trend
 DOWNTREND_MIN_FRAC = 0.6         # MA5 < MA10 on >=60% of bars before the low
 
@@ -187,7 +196,7 @@ class TrendReversal(BaseStrategy):
                 pb_low = float(lows[first_break + 1:].min())
                 is_green = close > float(opens[-1])
                 dipped = pb_low < neckline
-                held = pb_low > rs_low          # right low must not be lost
+                held = pb_low >= rs_low + RETEST_MIN_HOLD * (neckline - rs_low)
                 bounced = close >= pb_low + RETEST_CONFIRM_ATR * atr
                 not_extended = close <= neckline * MAX_ENTRY_EXTENSION
                 if is_green and dipped and held and bounced and not_extended:
