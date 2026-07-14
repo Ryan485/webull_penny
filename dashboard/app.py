@@ -127,8 +127,12 @@ def update_all(n):
     closed = state.get("closed_today", [])
     scanner = state.get("scanner", [])
 
-    watch = f" · watchlist: {', '.join(scanner[:12])}" if scanner else ""
-    sub = f"auto-refreshes every {REFRESH_SECS}s · updated {now_et} ET{watch}"
+    sub = html.Div([
+        html.Span(f"auto-refreshes every {REFRESH_SECS}s · updated {now_et} ET"),
+        html.Span(" · watchlist: " if scanner else "",
+                  style={"marginRight": "2px"}),
+        *[html.Span(t, className="watch-chip") for t in scanner[:15]],
+    ])
 
     # ── Stat cards ──
     acct = state.get("account_value", config.ACCOUNT_SIZE)
