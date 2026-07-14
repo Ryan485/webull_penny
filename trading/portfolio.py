@@ -32,7 +32,9 @@ class Position:
     entry_time: str
     current_price: float = 0.0
     notes: str = ""
-    initial_risk: float = 0.0    # entry - initial stop (R); fixed at entry
+    initial_risk: float = 0.0    # ACTUAL fill - initial stop (R); fixed at entry
+    planned_risk: float = 0.0    # pre-order quote - stop; vs initial_risk this
+                                 # measures slippage-driven risk overrun
     high_water: float = 0.0      # highest price seen; drives the trailing stop
     take_profit_at_target: bool = False  # sell at target (resistance-capped)
 
@@ -60,6 +62,8 @@ class ClosedTrade:
     exit_time: str
     exit_reason: str
     notes: str = ""
+    planned_risk: float = 0.0   # $ risk at sizing time (pre-fill quote - stop)
+    actual_risk: float = 0.0    # $ risk after the fill (fill - stop)
 
 
 STOP_COOLDOWN_SECS = 1800    # 30 min cooldown after a stop-loss exit
@@ -79,6 +83,7 @@ class Portfolio:
         self.scanner_results: List[str] = []
         self._stop_cooldowns: Dict[str, float] = {}    # ticker -> timestamp of stop exit
         self._profit_cooldowns: Dict[str, float] = {}  # ticker -> timestamp of profit exit
+        self._closing: set = set()   # tickers with a sell in flight (see begin_close)
         self._load_state()
         self._session_date = datetime.now(ET).strftime("%Y-%m-%d")
 
@@ -115,9 +120,28 @@ class Portfolio:
         )
         self._write_log(f"ENTER {pos.ticker} @ {pos.entry_price:.2f} x{pos.shares}")
 
+    def begin_close(self, ticker: str) -> bool:
+        """
+        Claim a ticker for closing. The exit-monitor thread and the main
+        loop's EOD close can otherwise both decide to sell the same position
+        in the same instant and double-submit the market sell. Callers must
+        call close_position() on success or abort_close() on a failed order.
+        """
+        with self._lock:
+            if ticker not in self.positions or ticker in self._closing:
+                return False
+            self._closing.add(ticker)
+            return True
+
+    def abort_close(self, ticker: str) -> None:
+        """Release a begin_close claim after a failed sell order."""
+        with self._lock:
+            self._closing.discard(ticker)
+
     def close_position(self, ticker: str, exit_price: float, reason: str) -> Optional[ClosedTrade]:
         with self._lock:
             pos = self.positions.pop(ticker, None)
+            self._closing.discard(ticker)
             if pos is None:
                 return None
             if reason == "stop_loss":
@@ -138,6 +162,8 @@ class Portfolio:
                 exit_time=datetime.now(ET).isoformat(),
                 exit_reason=reason,
                 notes=pos.notes,
+                planned_risk=round(pos.planned_risk * pos.shares, 2),
+                actual_risk=round(pos.initial_risk * pos.shares, 2),
             )
             self.closed_trades.append(trade)
             self.daily_pnl += pnl
@@ -211,8 +237,13 @@ class Portfolio:
         try:
             snap = self.snapshot()
             snap["date"] = datetime.now(ET).strftime("%Y-%m-%d")
-            with open(config.STATE_FILE, "w") as f:
+            # Atomic write: dump to a temp file, then rename over the real
+            # one. A crash mid-write can no longer leave a torn/invalid
+            # state.json (os.replace is atomic on Windows and POSIX).
+            tmp = config.STATE_FILE + ".tmp"
+            with open(tmp, "w") as f:
                 json.dump(snap, f, indent=2, default=str)
+            os.replace(tmp, config.STATE_FILE)
         except Exception as e:
             logger.warning(f"State save failed: {e}")
 
@@ -244,13 +275,36 @@ class Portfolio:
                     pass
             self.closed_trades = todays
             self.daily_pnl = sum(t.pnl for t in todays)
+            # Restore OPEN positions with their full structure (Low2 stop,
+            # trailing progress, take-profit flag, planned risk, notes).
+            # This was never read back before 2026-07-14 even though
+            # _save_state always wrote it — so every mid-session restart
+            # fell through to main.py's broker sync, which rebuilds stops
+            # from a generic 2%-ATR estimate and loses the real ones.
+            # Only same-day entries are restored; anything older is stale
+            # (the bot is EOD-flat by design) and is left to the broker sync.
+            pos_valid = {f.name for f in fields(Position)}
+            for ticker, p in (state.get("positions") or {}).items():
+                if not str(p.get("entry_time", "")).startswith(today):
+                    continue
+                try:
+                    self.positions[ticker] = Position(
+                        **{k: v for k, v in p.items() if k in pos_valid}
+                    )
+                    logger.info(f"Restored open position from state: {ticker}")
+                except Exception as e:
+                    logger.warning(f"Position restore failed for {ticker}: {e}")
         except Exception as e:
             logger.warning(f"State load failed: {e}")
 
-    # Column order matches the backtest trade CSVs (backtest_viral_trades.csv)
+    # First 12 columns match the backtest trade CSVs (backtest_viral_trades.csv)
     # so live and simulated outcomes share one schema and join on date+ticker.
+    # The extra columns track execution quality (slippage-driven risk overrun)
+    # and which frozen rule-set produced the trade — only trades from the
+    # frozen version count toward the formal paper forward test.
     _OUTCOME_COLS = ["date", "ticker", "strategy", "entry_time", "exit_time",
-                     "entry", "exit", "shares", "pnl", "pnl_pct", "reason", "notes"]
+                     "entry", "exit", "shares", "pnl", "pnl_pct", "reason", "notes",
+                     "planned_risk", "actual_risk", "risk_overrun_pct", "version"]
 
     def _log_outcome(self, trade: "ClosedTrade") -> None:
         """
@@ -285,6 +339,13 @@ class Portfolio:
                 "pnl_pct": round(trade.pnl_pct * 100, 2),
                 "reason": trade.exit_reason,
                 "notes": trade.notes,
+                "planned_risk": trade.planned_risk,
+                "actual_risk": trade.actual_risk,
+                "risk_overrun_pct": (
+                    round(100 * (trade.actual_risk / trade.planned_risk - 1), 1)
+                    if trade.planned_risk > 0 else ""
+                ),
+                "version": config.STRATEGY_VERSION,
             }
             new_file = not os.path.exists(config.OUTCOMES_FILE)
             with open(config.OUTCOMES_FILE, "a", newline="", encoding="utf-8") as f:

@@ -115,17 +115,25 @@ def check_exits(portfolio: Portfolio, broker) -> None:
 
             if price <= pos.stop_price:
                 reason = "trailing_stop" if pos.stop_price >= entry else "stop_loss"
+                if not portfolio.begin_close(ticker):
+                    continue  # another thread is already selling this one
                 fill = broker.place_market_sell(ticker, pos.shares)
                 if fill:
                     actual_exit = fill if isinstance(fill, float) else pos.stop_price
                     portfolio.close_position(ticker, actual_exit, reason)
+                else:
+                    portfolio.abort_close(ticker)
             elif pos.take_profit_at_target and pos.target_price \
                     and price >= pos.target_price:
                 # Resistance-capped target: sell into the wall
+                if not portfolio.begin_close(ticker):
+                    continue
                 fill = broker.place_market_sell(ticker, pos.shares)
                 if fill:
                     actual_exit = fill if isinstance(fill, float) else pos.target_price
                     portfolio.close_position(ticker, actual_exit, "take_profit")
+                else:
+                    portfolio.abort_close(ticker)
         except Exception as e:
             logger.error(f"Exit check error for {ticker}: {e}")
 
@@ -146,12 +154,15 @@ def check_entries(state: BotState, portfolio: Portfolio, broker) -> None:
     logger.debug(f"check_entries: {len(tickers)} tickers")
 
     for ticker in tickers:
-        if not portfolio.can_open_position(ticker):
-            continue
-        # Catalyst gate: no story + no social buzz = pump-and-dump risk
-        if get_catalyst(ticker) == "unknown":
-            continue
+        # ALL per-ticker work stays inside this try: an exception escaping
+        # here would kill the whole scan pass (and, without the boundary in
+        # trading_loop, the trading thread itself).
         try:
+            if not portfolio.can_open_position(ticker):
+                continue
+            # Catalyst gate: no story + no social buzz = pump-and-dump risk
+            if get_catalyst(ticker) == "unknown":
+                continue
             df = get_live_bars(ticker)
             if df is None or len(df) < 50:
                 continue
@@ -235,6 +246,7 @@ def check_entries(state: BotState, portfolio: Portfolio, broker) -> None:
                     current_price=live_price,
                     notes=best.notes,
                     initial_risk=max(actual_entry - stop, 0.0),
+                    planned_risk=max(live_price - stop, 0.0),
                     high_water=actual_entry,
                     take_profit_at_target=best.take_profit,
                 )
@@ -247,19 +259,46 @@ def check_entries(state: BotState, portfolio: Portfolio, broker) -> None:
 # ── Market close cleanup ──────────────────────────────────────────────────────
 
 def eod_close_all(portfolio: Portfolio, broker) -> None:
-    """Force-close all positions at EOD."""
+    """Force-close all positions at EOD. Caller retries while any remain."""
     for ticker, pos in list(portfolio.positions.items()):
         try:
+            if not portfolio.begin_close(ticker):
+                continue  # exit thread is already selling this one
             price = broker.get_quote(ticker) or pos.entry_price
             fill = broker.place_market_sell(ticker, pos.shares)
-            actual_exit = fill if isinstance(fill, float) else price
-            portfolio.close_position(ticker, actual_exit, "eod_close")
-            logger.info(f"EOD close: {ticker}")
+            if fill:
+                actual_exit = fill if isinstance(fill, float) else price
+                portfolio.close_position(ticker, actual_exit, "eod_close")
+                logger.info(f"EOD close: {ticker}")
+            else:
+                portfolio.abort_close(ticker)
+                logger.error(f"EOD close: sell order failed for {ticker}")
         except Exception as e:
+            portfolio.abort_close(ticker)
             logger.error(f"EOD close error for {ticker}: {e}")
 
 
 # ── Main trading loop ─────────────────────────────────────────────────────────
+
+def exit_monitor_loop(portfolio: Portfolio, broker, stop_event: threading.Event):
+    """
+    Dedicated stop/target watcher, independent of entry scanning.
+    Stops are client-side, so they must never wait behind a slow watchlist
+    scan (each ticker in check_entries does several network calls with 15s
+    timeouts; a few slow ones used to delay the next exit check by minutes).
+    Runs every EXIT_CHECK_SECS while the market is open.
+    """
+    while not stop_event.is_set():
+        try:
+            if is_market_open() and portfolio.positions:
+                check_exits(portfolio, broker)
+        except Exception as e:
+            logger.error(f"Exit monitor error: {e}")
+        stop_event.wait(EXIT_CHECK_SECS)
+
+
+EXIT_CHECK_SECS = 5
+
 
 def trading_loop(broker, portfolio: Portfolio, stop_event: threading.Event,
                  exit_after_close: bool = False):
@@ -270,6 +309,12 @@ def trading_loop(broker, portfolio: Portfolio, stop_event: threading.Event,
         target=scanner_loop, args=(state, portfolio, stop_event), daemon=True
     )
     scanner_thread.start()
+
+    # Exits get their own thread — see exit_monitor_loop docstring
+    exit_thread = threading.Thread(
+        target=exit_monitor_loop, args=(portfolio, broker, stop_event), daemon=True
+    )
+    exit_thread.start()
 
     # Wait for first scan
     time.sleep(5)
@@ -301,27 +346,35 @@ def trading_loop(broker, portfolio: Portfolio, stop_event: threading.Event,
             stop_event.wait(30)
             continue
 
-        # EOD position cleanup (3:30 PM ET onwards — 30 min before close)
+        # EOD position cleanup (3:30 PM ET onwards — 30 min before close).
+        # RETRIES every tick until the portfolio is confirmed flat: a single
+        # failed sell used to be logged and forgotten (eod_closed was set
+        # unconditionally), leaving an unintended overnight position in a
+        # volatile penny stock. Found in external review 2026-07-14.
         eod_window = now_et.hour > 15 or (now_et.hour == 15 and now_et.minute >= 30)
         if eod_window and not eod_closed:
-            eod_close_all(portfolio, broker)
-            eod_closed = True
-            try:
-                from reporting.daily_report import save_report
-                path = save_report(portfolio)
-                logger.info(f"Daily report saved: {path}")
-            except Exception as e:
-                logger.warning(f"Report generation failed: {e}")
-            # Scheduled-run mode: done for the day once everything is flat.
-            # If an EOD sell failed, keep running (16:00 exit above catches it).
-            if exit_after_close and not portfolio.positions:
-                logger.info("Exit-after-close: EOD done, shutting down")
-                stop_event.set()
-                break
+            if portfolio.positions:
+                eod_close_all(portfolio, broker)
+            if not portfolio.positions:
+                eod_closed = True
+                try:
+                    from reporting.daily_report import save_report
+                    path = save_report(portfolio)
+                    logger.info(f"Daily report saved: {path}")
+                except Exception as e:
+                    logger.warning(f"Report generation failed: {e}")
+                # Scheduled-run mode: done for the day once everything is flat.
+                if exit_after_close:
+                    logger.info("Exit-after-close: EOD done, shutting down")
+                    stop_event.set()
+                    break
+            else:
+                logger.warning(
+                    f"EOD close incomplete, {len(portfolio.positions)} position(s) "
+                    f"remain - retrying next tick"
+                )
 
-        # Monitor open positions for stop/target — always runs, even when halted
-        check_exits(portfolio, broker)
-
+        # (Exit monitoring runs in its own thread — exit_monitor_loop)
         halt = config.DAILY_HALT_ENABLED and daily_halt_triggered(portfolio.daily_pnl, portfolio.account_value)
         if halt:
             if not _halt_logged:
@@ -344,9 +397,14 @@ def trading_loop(broker, portfolio: Portfolio, stop_event: threading.Event,
                 pass
             last_balance_sync = time.time()
 
-        # Look for new entries — but not within the EOD window
+        # Look for new entries — but not within the EOD window.
+        # Boundary so no unexpected error can kill the trading thread while
+        # the dashboard keeps the process looking alive.
         if not eod_window and len(portfolio.positions) < config.MAX_POSITIONS:
-            check_entries(state, portfolio, broker)
+            try:
+                check_entries(state, portfolio, broker)
+            except Exception as e:
+                logger.error(f"check_entries failed: {e}")
 
         # Persist snapshot so dashboard sees latest signals/scanner results
         portfolio._save_state()

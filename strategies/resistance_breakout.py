@@ -89,12 +89,15 @@ def _find_resistance_levels(df: pd.DataFrame) -> List[tuple]:
         if len(touches) < 2:
             continue
         level = float(max(highs[t] for t in touches))
-        # first close above the level between the first touch and the
-        # previous bar. Fresh break = breakout entry; stale break = retest
-        # candidate (handled in evaluate); very old break = level is spent.
+        # first close above the level AFTER the level fully formed (after
+        # the last confirming touch). Searching from touches[0] was a
+        # real-time logic bug (review 2026-07-14): a close between touch 1
+        # and touch 2 counted as "breaking" a level that did not yet exist.
+        # Fresh break = breakout entry; stale break = retest candidate;
+        # very old break = level is spent.
         n = len(closes)
         first_break = next(
-            (j for j in range(touches[0], n - 1)
+            (j for j in range(touches[-1] + 1, n - 1)
              if closes[j] > level * BREAKOUT_BUFFER),
             None,
         )

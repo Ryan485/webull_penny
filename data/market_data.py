@@ -104,11 +104,26 @@ def get_live_bars(symbol: str, lookback_minutes: int = 390) -> Optional[pd.DataF
         logger.warning(f"Not enough data for {symbol}")
         return None
 
-    # Reject stale data — last bar must be within 10 minutes during market hours
-    if is_market_open():
+    # Drop the still-forming minute bar (bar whose start minute hasn't
+    # closed yet). yfinance returns the partial current bar as the last
+    # row, so "close above neckline"/"green bar" tests could fire 20s into
+    # a candle that reverses by :59 — while the backtest only ever sees
+    # completed candles. Dropping it keeps live and backtest signal timing
+    # identical (review 2026-07-14).
+    current_minute = now.replace(second=0, microsecond=0)
+    last_bar = df.index[-1]
+    if hasattr(last_bar, "tzinfo") and last_bar.tzinfo is None:
+        last_bar = last_bar.tz_localize(ET)
+    if last_bar >= current_minute:
+        df = df.iloc[:-1]
+        if len(df) < 50:
+            return None
         last_bar = df.index[-1]
         if hasattr(last_bar, "tzinfo") and last_bar.tzinfo is None:
             last_bar = last_bar.tz_localize(ET)
+
+    # Reject stale data — last bar must be within 10 minutes during market hours
+    if is_market_open():
         age_mins = (now - last_bar).total_seconds() / 60
         if age_mins > 10:
             logger.warning(f"Stale data for {symbol}: last bar is {age_mins:.0f}min old")

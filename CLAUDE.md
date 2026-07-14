@@ -63,7 +63,14 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   own stop/target overrides. gap_bounce exists but is **retired from the live loop**
   (kept only in backtesting/engine.py).
 - `trading/portfolio.py` — per-ticker daily caps (3 trades, 2 stops), 30-min cooldowns
-  after any exit, state restored across restarts (incl. closed_today so caps survive).
+  after any exit, state restored across restarts (incl. closed_today so caps survive
+  AND open positions with their full stop/trail/take-profit structure — positions
+  were saved but never restored until 2026-07-14, so restarts silently fell back
+  to main.py's broker sync with a generic 2%-ATR stop). state.json writes are
+  atomic (temp file + os.replace). SQLite was evaluated and deliberately
+  REJECTED for now (2026-07-14): EOD-flat bot, one RLock-guarded writer,
+  atomic JSON covers crash safety — revisit at IBKR go-live for order/fill
+  tracking, not before.
   Every closed LIVE trade is also appended to `logs/trade_outcomes.csv`
   (append-only, survives the nightly state reset; same schema as the
   backtest trade CSVs so live+backtest join on date+ticker vs research) —
@@ -71,7 +78,15 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   refinement (state.json alone is wiped daily; .md reports aren't queryable).
 - `main.py` — entry gates in order: after 10:00 ET, before 15:30 ET, catalyst != "unknown",
   close ≥ session VWAP, caps/cooldowns. Exits: trailing stop 0.75R below high-water,
-  armed once +1R is reached (no fixed take-profit). The trail used to start at +1.5R
+  armed once +1R is reached (no fixed take-profit). Exits run in a DEDICATED
+  THREAD (`exit_monitor_loop`, every 5s) so client-side stops never wait
+  behind a slow watchlist scan; `Portfolio.begin_close()` claims a ticker so
+  the exit thread and EOD close can't double-sell (2026-07-14). EOD close
+  RETRIES every tick until the portfolio is flat — a failed 15:30 sell used
+  to be forgotten and could leave an overnight position. check_entries is
+  wrapped in an exception boundary; all per-ticker work is inside the
+  per-ticker try. Live bars DROP the still-forming minute candle so live
+  signal timing matches the backtest (completed candles only). The trail used to start at +1.5R
   with only breakeven in between — a winner peaking between +1R and +1.5R round-tripped
   to zero (SOXS 2026-07-07: +5.1% peak exited -0.2%); fixed 2026-07-07. **All positions
   closed at 15:30 ET**, then the daily report saves to `logs/reports/`.
@@ -109,6 +124,27 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   they die. Owner first wanted VWAP enforced on early entries, then approved
   waiving it (2026-07-06) after the backtest showed below-VWAP bottoms carry
   the edge (PF 1.37 waived vs 1.08 enforced; see validation below).
+
+## Review fixes + parameter freeze (2026-07-14)
+External code review (two rounds) confirmed four strategy bugs, all fixed:
+resistance_breakout searched for the level break from touches[0] (a break
+before the level existed) -> now touches[-1]+1; double_bottom breakout target
+was close+(neck-low1) -> now neckline-based like the other modes; trend_reversal's
+prior-downtrend is now a HARD GATE (was +1 point; the other components are
+correlated echoes of the same bounce); Low2 higher-low tolerance capped at 5%
+absolute (2-ATR clause was unbounded on violent names). Execution hardening:
+EOD retry-until-flat, exit-monitor thread, exception boundaries, position
+restore, atomic state writes, forming-candle drop, chase guard, risk-overrun
+logging. Post-fix in-sample backtest: 124 trades, +$27.3K, PF 2.39, 56% WR,
+$221/trade (down from PF 2.75/+$33.4K pre-fix — expected: part of the old
+edge was logically invalid signals; the drop is mostly trend_reversal's hard
+gate and it was NOT tuned back). double_bottom 28 trades +$11.4K, resistance_
+breakout 60 trades +$8.0K (touches[-1] fix doubled its valid levels),
+trend_reversal 36 trades +$7.9K. **Parameters are FROZEN as `config.STRATEGY_VERSION`
+(us-penny-v1.0-frozen-2026-07-14). Do NOT add new filters after individual
+losing trades — the June/July backtest sample is exhausted as design data;
+paper trading from this version forward is the out-of-sample test. Bump the
+version string if logic changes so forward-test samples don't mix.**
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical

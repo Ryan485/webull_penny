@@ -146,6 +146,10 @@ PIVOT_TIE_PCT = 0.001
 # stays tight (LOW_TOLERANCE_PCT / LOW_ATR_TOLERANCE).
 LOW2_ABOVE_PCT = 0.02
 LOW2_ABOVE_ATR = 2.0
+# Absolute ceiling on the ATR clause (review 2026-07-14): on a violent name
+# ATR can be 10%+ of price, letting 2 ATR accept a "second bottom" 20-30%
+# above Low1 — not the same base. Same unbounded-ATR disease as the depth cap.
+LOW2_ABOVE_MAX_PCT = 0.05
 
 # Resistance-capped target (added 2026-07-08, VTAK): if a 2+ touch swing-high
 # level sits between entry and the measured-move target, the realistic upside
@@ -214,7 +218,9 @@ def _find_w_pattern(df: pd.DataFrame, atr: float) -> Optional[Tuple[float, float
             if not _had_downtrend(closes, i1):
                 continue
             if l2 >= l1:   # higher low: bullish, generous tolerance
-                if l2 - l1 > max(LOW2_ABOVE_PCT * l1, LOW2_ABOVE_ATR * atr):
+                allowed = min(max(LOW2_ABOVE_PCT * l1, LOW2_ABOVE_ATR * atr),
+                              LOW2_ABOVE_MAX_PCT * l1)
+                if l2 - l1 > allowed:
                     continue
             else:          # lower low: pattern is failing, tight tolerance
                 if l1 - l2 > max(LOW_TOLERANCE_PCT * l1, LOW_ATR_TOLERANCE * atr):
@@ -368,8 +374,11 @@ class DoubleBottom(BaseStrategy):
                 notes=f"w_stoch_gate(breakout,neck={neckline:.3f})",
             )
 
+        # Measured move from the NECKLINE, matching early/retest modes —
+        # was close + (neckline - l1), which inflated the target by however
+        # far entry sat above the neckline (review 2026-07-14).
         target, tp, room = _cap_target_at_resistance(
-            df, close, stop, close + (neckline - l1), float(atr))
+            df, close, stop, neckline + (neckline - l1), float(atr))
         if not room:
             return Signal(
                 ticker, self.name, 0, entry_price=close,

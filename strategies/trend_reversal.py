@@ -23,14 +23,23 @@ class TrendReversal(BaseStrategy):
 
         prev_row = prev(df)
 
-        # 1. Prior downtrend: MA5 < MA10 for majority of candles leading up to the day's low
+        # 1. Prior downtrend: MA5 < MA10 for majority of candles leading up
+        # to the day's low. HARD GATE since 2026-07-14 (external review):
+        # this is the defining structure of the strategy. As a mere +1 it
+        # could be skipped entirely — the remaining components (MA cross,
+        # stoch cross, RSI recovery) are three correlated echoes of the same
+        # bounce and could reach the trigger score with no reversal setup.
         low_idx = df["low"].idxmin()
         before_low = df.loc[:low_idx].dropna(subset=["ma5", "ma10"])
-        if len(before_low) >= 10:
-            bearish_candles = (before_low["ma5"] < before_low["ma10"]).sum()
-            if bearish_candles / len(before_low) >= 0.6:
-                score += 1
-                notes.append(f"prior_downtrend({bearish_candles}/{len(before_low)})")
+        if len(before_low) < 10:
+            return Signal(ticker=ticker, strategy=self.name, score=0,
+                          notes="no_prior_downtrend(short)")
+        bearish_candles = (before_low["ma5"] < before_low["ma10"]).sum()
+        if bearish_candles / len(before_low) < 0.6:
+            return Signal(ticker=ticker, strategy=self.name, score=0,
+                          notes="no_prior_downtrend")
+        score += 1
+        notes.append(f"prior_downtrend({bearish_candles}/{len(before_low)})")
 
         # 2. Flattening: find the day's low, check that candles since then are tight (≤ 2% range)
         low_idx = df["low"].idxmin()
