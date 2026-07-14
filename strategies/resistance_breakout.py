@@ -33,6 +33,9 @@ MIN_BARS = 45                    # 2 touches >=10 bars apart fit in far less tha
 PIVOT = 5
 CLUSTER_PCT = 0.005              # swing highs within 0.5% form one level
 MIN_TOUCH_GAP = 10               # touches must be ≥10 bars apart
+MIN_TOUCHES = int(os.environ.get("RB_MIN_TOUCHES", "2"))  # owner asked (2026-07-14,
+                                 # LHAI) whether 2 tests of a level is enough —
+                                 # sweepable so the answer comes from a backtest
 BREAKOUT_BUFFER = 1.002          # close must clear resistance by 0.2%
 MAX_ENTRY_EXTENSION = 1.02       # …but not more than 2% above (don't chase)
 FRESH_BREAK_BARS = 3             # may enter up to 3 bars after the first break
@@ -94,7 +97,7 @@ def _find_resistance_levels(df: pd.DataFrame) -> List[tuple]:
             if abs(highs[b] - level) / level <= CLUSTER_PCT \
                     and b - touches[-1] >= MIN_TOUCH_GAP:
                 touches.append(b)
-        if len(touches) < 2:
+        if len(touches) < MIN_TOUCHES:
             continue
         level = float(max(highs[t] for t in touches))
         # first close above the level AFTER the level fully formed (after

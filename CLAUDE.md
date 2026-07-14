@@ -275,6 +275,16 @@ same-universe backtest: 103 trades, +$24.0K, PF 2.90, 60% WR, $233/trade.
   SIP data at go-live. The owner's "box" rule (level tested multiple
   times) is already rb's core requirement (2+ touches, 0.5% cluster,
   >=10 bars apart).
+- **3+ touch minimum tested and REJECTED (2026-07-14):** owner intuition
+  was that 2 tests of a level is too few. Sweep via `RB_MIN_TOUCHES`
+  (env flag, default 2): requiring 3+ collapses rb to 20 trades,
+  +$196 TOTAL, 35% WR (from 67/+$8.1K/51%); whole book +$24.0K ->
+  +$14.3K, PF 2.90 -> 2.49. The extra-tested levels are the WORSE
+  trades — on 1m viral pennies a box tested many times means heavy
+  supply sitting on the level and a late entry in the window; the
+  profitable core is the fresh 2-touch level breaking early. Don't
+  raise it. (Overhead-resistance TARGET capping keeps 2 touches
+  independently — for selling, a twice-tagged wall still counts.)
 - Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.
