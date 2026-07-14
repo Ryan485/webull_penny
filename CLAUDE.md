@@ -60,7 +60,16 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   retest mode as double_bottom: a break up to 30 bars old is NOT spent if price
   pulled back within 2 ATR of the level — buy the bounce, stop under the pullback low).
   Signals with score ≥ 3 trigger; double_bottom and resistance_breakout set their
-  own stop/target overrides. gap_bounce exists but is **retired from the live loop**
+  own stop/target overrides. trend_reversal was REWRITTEN 2026-07-14 (owner
+  directive after VMAR): the old MA-cross/stoch/RSI scoring version is gone;
+  it now detects structural bullish reversals by NECKLINE — inverse H&S /
+  rounding bottom / cup & handle share one skeleton (prior downtrend hard
+  gate -> window-low base -> rally high = neckline -> higher right-side low
+  -> neckline breakout or 30-bar retest entry), with the same 4%-min/20%-max
+  base-depth caps and resistance-capped take-profit as double_bottom.
+  Triple bottom is deliberately absent (double_bottom fires on its last two
+  lows, resistance_breakout on the box top); bullish wedge excluded per
+  owner. gap_bounce exists but is **retired from the live loop**
   (kept only in backtesting/engine.py).
 - `trading/portfolio.py` — per-ticker daily caps (3 trades, 2 stops), 30-min cooldowns
   after any exit, state restored across restarts (incl. closed_today so caps survive
@@ -140,11 +149,15 @@ $221/trade (down from PF 2.75/+$33.4K pre-fix — expected: part of the old
 edge was logically invalid signals; the drop is mostly trend_reversal's hard
 gate and it was NOT tuned back). double_bottom 28 trades +$11.4K, resistance_
 breakout 60 trades +$8.0K (touches[-1] fix doubled its valid levels),
-trend_reversal 36 trades +$7.9K. **Parameters are FROZEN as `config.STRATEGY_VERSION`
-(us-penny-v1.0-frozen-2026-07-14). Do NOT add new filters after individual
-losing trades — the June/July backtest sample is exhausted as design data;
-paper trading from this version forward is the out-of-sample test. Bump the
-version string if logic changes so forward-test samples don't mix.**
+trend_reversal 36 trades +$7.9K. **Parameters are FROZEN as `config.STRATEGY_VERSION`.
+Do NOT add new filters after individual losing trades — the June/July backtest
+sample is exhausted as design data; paper trading from this version forward is
+the out-of-sample test. Bump the version string if logic changes so forward-test
+samples don't mix.** v1.0 (us-penny-v1.0-frozen-2026-07-14) lasted one live
+trade (VMAR): superseded same day by **us-penny-v1.1-structural-tr-2026-07-14**
+(trend_reversal rewritten as a structural neckline detector on owner
+directive — see the flat-base experiment entry in Validation). v1.1
+same-universe backtest: 102 trades, +$24.7K, PF 2.95, 60% WR, $242/trade.
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical
@@ -223,10 +236,18 @@ version string if logic changes so forward-test samples don't mix.**
   went to ZERO trades. Same-universe comparison (117 ticker-days):
   baseline 125 trades +$26.3K PF 2.28 vs gated 100 trades +$21.9K PF 2.69
   (stop bleed -$20.6K -> -$12.9K; freed slots pushed double_bottom 28->33
-  trades +$2.4K). So the honest choice is binary: keep trend_reversal
-  as-is or retire it like gap_bounce — a softer flat band would be a new
-  knob tuned on exhausted data. DECISION PENDING with owner; v1.0 stays
-  frozen with the flag at 0 meanwhile. Also on this trade: quote 2.03
+  trades +$2.4K). RESOLVED same day: owner rejected both retiring and the
+  flat gate — directive was "trend reversal is good only when you do it
+  correctly: track the resistance level and neckline" (chart-pattern
+  reference: iH&S / rounding bottom / cup & handle; no bullish wedge).
+  Strategy rewritten structurally (see Architecture) as **v1.1**:
+  same universe, 102 trades +$24.7K **PF 2.95, 60% WR, $242/trade**;
+  trend_reversal itself 4 trades 4/4 wins +$2.7K (all rev_retest — the
+  breakout mode never filled in-sample, watch whether it fires live),
+  VMAR 07-14 produces ZERO trades under the new logic. Beats both
+  keep-old (PF 2.28) and retire (PF 2.69). Only 4 in-sample trades =
+  thin evidence; live forward test judges it. The TR_REQUIRE_FLAT flag
+  was removed with the rewrite. Also on this trade: quote 2.03
   passed the 1.5% chase guard but the market order filled 2.09 —
   risk_overrun_pct logged +59.1%; if overruns recur, the fix is limit
   orders, not filters. The recovery W at 10:25-10:30 was missed because
