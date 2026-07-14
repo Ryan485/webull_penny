@@ -98,11 +98,11 @@ def _log_tail(n: int = LOG_LINES) -> list:
         return []
 
 
-def _stat_card(label: str, value: str, cls: str = ""):
+def _stat_card(label: str, value: str, cls: str = "", card_cls: str = ""):
     return html.Div([
         html.Div(label, className="label"),
         html.Div(value, className=f"value {cls}".strip()),
-    ], className="card-kr")
+    ], className=f"card-kr {card_cls}".strip())
 
 
 def _sign_cls(v: float) -> str:
@@ -144,8 +144,10 @@ def update_all(n):
 
     cards = [
         _stat_card("Account ($)", f"{acct:,.0f}"),
-        _stat_card("Daily P&L ($)", f"{dpnl:+,.0f}", _sign_cls(dpnl)),
-        _stat_card("Unrealized ($)", f"{unreal:+,.0f}", _sign_cls(unreal)),
+        _stat_card("Daily P&L ($)", f"{dpnl:+,.0f}", _sign_cls(dpnl),
+                   card_cls=f"card-{_sign_cls(dpnl)}"),
+        _stat_card("Unrealized ($)", f"{unreal:+,.0f}", _sign_cls(unreal),
+                   card_cls=f"card-{_sign_cls(unreal)}"),
         _stat_card("Buys", str(len(closed) + len(positions))),
         _stat_card("Sells", str(len(closed))),
         _stat_card("Win rate", win_rate),
@@ -174,7 +176,7 @@ def update_all(n):
                          className="label"),
                 html.Button("Sell Now", className="sellbtn",
                             id={"type": "sell-btn", "ticker": ticker}),
-            ], className="card-kr"))
+            ], className=f"card-kr card-{_sign_cls(pnl)}"))
         pos_block = html.Div([
             html.H1("Open Positions", className="section"),
             html.Div(pos_cards, className="cards"),

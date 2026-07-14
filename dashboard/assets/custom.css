@@ -53,6 +53,18 @@ h1.section {
 .pos { color: #4caf50; }
 .neg { color: #ef5350; }
 
+/* Whole-card profit/loss highlight (owner request 2026-07-14): open
+   position cards and the Daily P&L / Unrealized stat cards get a tinted
+   background + colored border, same treatment as the watchlist chips. */
+.card-kr.card-pos {
+    background: rgba(76, 175, 80, 0.10);
+    border-color: #4caf50;
+}
+.card-kr.card-neg {
+    background: rgba(239, 83, 80, 0.10);
+    border-color: #ef5350;
+}
+
 table.trades {
     border-collapse: collapse;
     width: 100%;
