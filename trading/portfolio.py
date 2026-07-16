@@ -68,8 +68,14 @@ class ClosedTrade:
 
 STOP_COOLDOWN_SECS = 1800    # 30 min cooldown after a stop-loss exit
 PROFIT_COOLDOWN_SECS = 1800  # 30 min cooldown after a take-profit exit
-MAX_TRADES_PER_TICKER_DAY = 3   # hard cap on churn
-MAX_STOPS_PER_TICKER_DAY = 2    # 2 stop-losses -> blacklisted for the day
+MAX_TRADES_PER_TICKER_DAY = 3   # hard cap on churn — the binding limit
+MAX_STOPS_PER_TICKER_DAY = 3    # raised 2 -> 3 (2026-07-16, TGHL): the 2-stop
+                                # blacklist blocked the 14:28 ET rb breakout
+                                # (7x vol) that ran 1.46 -> 1.576; sweep on the
+                                # full universe: cap 2 PF 2.62/+$25.1K vs cap 3
+                                # PF 2.81/+$28.5K. With 3 trades/day the stop
+                                # cap now never binds; the trade cap + 30-min
+                                # stop cooldown are the churn guards.
 
 
 class Portfolio:

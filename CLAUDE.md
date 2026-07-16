@@ -71,7 +71,9 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   lows, resistance_breakout on the box top); bullish wedge excluded per
   owner. gap_bounce exists but is **retired from the live loop**
   (kept only in backtesting/engine.py).
-- `trading/portfolio.py` — per-ticker daily caps (3 trades, 2 stops), 30-min cooldowns
+- `trading/portfolio.py` — per-ticker daily caps (3 trades, 3 stops — raised
+  from 2 stops 2026-07-16 after TGHL; the trade cap is the binding limit now),
+  30-min cooldowns
   after any exit, state restored across restarts (incl. closed_today so caps survive
   AND open positions with their full stop/trail/take-profit structure — positions
   were saved but never restored until 2026-07-14, so restarts silently fell back
@@ -158,6 +160,10 @@ trade (VMAR): superseded same day by **us-penny-v1.1-structural-tr-2026-07-14**
 (trend_reversal rewritten as a structural neckline detector on owner
 directive — see the flat-base experiment entry in Validation). v1.1
 same-universe backtest: 103 trades, +$24.0K, PF 2.90, 60% WR, $233/trade.
+**us-penny-v1.2-stopcap3-2026-07-16**: per-ticker daily stop cap raised
+2 -> 3 (see the TGHL stop-cap entry in Validation) — no signal-logic change;
+v1.2 baseline on the grown universe (incl. 07-15/07-16): 126 trades,
++$28.5K, PF 2.81, 58% WR, $226/trade.
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical
@@ -285,6 +291,23 @@ same-universe backtest: 103 trades, +$24.0K, PF 2.90, 60% WR, $233/trade.
   profitable core is the fresh 2-touch level breaking early. Don't
   raise it. (Overhead-resistance TARGET capping keeps 2 touches
   independently — for selling, a twice-tagged wall still counts.)
+- **Stop-cap raise 2 -> 3 ADOPTED as v1.2 (2026-07-16, TGHL):** TGHL took
+  two stops (12:03 rb -2.2%, 12:47 db -3.7%) and the 2-stop blacklist then
+  blocked rb's 14:28 ET breakout signal (res=1.445, 7x vol) right before
+  the run 1.46 -> 1.576 — replay confirmed the bot SAW the entry and the
+  cap alone refused it. Sweep via `BT_MAX_STOPS_PER_DAY`: cap 2 gives 121
+  trades/+$25.1K/PF 2.62; cap 3 gives 126/+$28.5K/PF 2.81/$226 per trade;
+  uncapped is IDENTICAL to cap 3 (the 3-trades/day cap binds first, so
+  cap 3 = blacklist removed). Only 5 extra trades = thin, but direction +
+  owner directive agree. Churn guards remaining: 3 trades/ticker/day +
+  30-min stop cooldown. Related: the 12:40 db entry looked "stoch ~60,
+  mid-range" on Webull but was K=31.7 off a 0.0 trough on IEX bars (IEX
+  printed NO bars 12:33-12:38) — consolidated-vs-IEX stoch gap again, and
+  that W genuinely failed (lower low 1.31 at 12:47), so the stop itself
+  was correct. The owner's sell-at-resistance / re-enter-on-break rule is
+  already implemented (resistance-capped take_profit + rb re-entry); the
+  30-min PROFIT cooldown is the remaining friction — untested, candidate
+  for a future sweep, don't change without one.
 - Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.

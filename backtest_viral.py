@@ -25,6 +25,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import csv
 import logging
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -52,7 +53,12 @@ ENTRY_START = (10, 0)     # no entries before 10:00 ET
 EOD_CUTOFF = (15, 30)     # close everything at/after 15:30 ET
 COOLDOWN_MINS = 30
 MAX_TRADES_PER_DAY = 3
-MAX_STOPS_PER_DAY = 2
+MAX_STOPS_PER_DAY = int(os.environ.get("BT_MAX_STOPS_PER_DAY", "3"))
+                    # raised 2 -> 3 with portfolio.py (2026-07-16, TGHL): the
+                    # 2-stop blacklist blocked the 14:28 ET rb breakout (7x
+                    # vol) that ran 1.46 -> 1.576. Sweep: cap 2 PF 2.62 /
+                    # +$25.1K vs cap 3 PF 2.81 / +$28.5K (uncapped identical —
+                    # the 3-trades/day cap binds first).
 
 
 def load_universe() -> dict:
