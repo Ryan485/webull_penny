@@ -66,8 +66,13 @@ class ClosedTrade:
     actual_risk: float = 0.0    # $ risk after the fill (fill - stop)
 
 
-STOP_COOLDOWN_SECS = 1800    # 30 min cooldown after a stop-loss exit
-PROFIT_COOLDOWN_SECS = 1800  # 30 min cooldown after a take-profit exit
+STOP_COOLDOWN_SECS = 600     # cooldown after a stop-loss exit; 30 -> 10 min
+PROFIT_COOLDOWN_SECS = 600   # cooldown after a profit exit; 30 -> 10 min
+                             # (2026-07-16 sweep, owner "remove the cooldown":
+                             # 30min PF 2.81/+$28.5K, 0min PF 2.78/+$31.1K,
+                             # 10min PF 3.32/+$34.9K — a short breather stops
+                             # instant re-buys of a still-falling name, but
+                             # 30min missed VMAR 10:25 / TGHL 12:33 recoveries)
 MAX_TRADES_PER_TICKER_DAY = 3   # hard cap on churn — the binding limit
 MAX_STOPS_PER_TICKER_DAY = 3    # raised 2 -> 3 (2026-07-16, TGHL): the 2-stop
                                 # blacklist blocked the 14:28 ET rb breakout

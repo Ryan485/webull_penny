@@ -163,7 +163,10 @@ same-universe backtest: 103 trades, +$24.0K, PF 2.90, 60% WR, $233/trade.
 **us-penny-v1.2-stopcap3-2026-07-16**: per-ticker daily stop cap raised
 2 -> 3 (see the TGHL stop-cap entry in Validation) — no signal-logic change;
 v1.2 baseline on the grown universe (incl. 07-15/07-16): 126 trades,
-+$28.5K, PF 2.81, 58% WR, $226/trade.
++$28.5K, PF 2.81, 58% WR, $226/trade. **us-penny-v1.3-cooldown10-2026-07-16**
+(same day, owner "remove the cooldown" directive): both per-ticker exit
+cooldowns cut 30 -> 10 min (see the cooldown sweep entry in Validation);
+v1.3 baseline: 130 trades, +$34.9K, PF 3.32, 62% WR, $268/trade.
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical
@@ -307,7 +310,20 @@ v1.2 baseline on the grown universe (incl. 07-15/07-16): 126 trades,
   was correct. The owner's sell-at-resistance / re-enter-on-break rule is
   already implemented (resistance-capped take_profit + rb re-entry); the
   30-min PROFIT cooldown is the remaining friction — untested, candidate
-  for a future sweep, don't change without one.
+  for a future sweep, don't change without one. (Swept same day — see the
+  cooldown entry below; both cooldowns are 10 min as of v1.3.)
+- **Cooldown 30 -> 10 min ADOPTED as v1.3 (2026-07-16, owner directive):**
+  owner asked to REMOVE the post-exit cooldown ("if you spot a good
+  opportunity, keep trying"). Sweep via `BT_COOLDOWN_MINS` (applies to all
+  exits): 30 min = 126 trades/+$28.5K/PF 2.81; 0 min = 132/+$31.1K/PF 2.78
+  (avg loss grows -$297 -> -$329: instant re-entries into still-falling
+  names); **10 min = 130 trades/+$34.9K/PF 3.32, 62% WR, $268/trade —
+  best on every metric, adopted for BOTH stop and profit cooldowns.**
+  A short breather filters the machine-gun re-buys while still catching
+  recovery setups the 30-min lock missed (VMAR 10:25 W on 07-14, TGHL
+  12:33 window on 07-16). Full removal was NOT adopted: it is worse than
+  10 min everywhere and matches the owner's own "not without strategy"
+  caveat. Churn guards now: 3 trades/ticker/day + 10-min exit cooldowns.
 - Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.

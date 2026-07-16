@@ -67,7 +67,7 @@ DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", 8050))
 # Frozen rule-set tag stamped on every logged trade. Bump ONLY when strategy
 # logic/parameters change; trades from one version form one forward-test
 # sample and must not be mixed with trades from another.
-STRATEGY_VERSION = "us-penny-v1.2-stopcap3-2026-07-16"
+STRATEGY_VERSION = "us-penny-v1.3-cooldown10-2026-07-16"
 # Max the live quote may sit above the signal price before a buy is skipped
 # (anti-chase; FTRK 2026-07-13 filled +4.2% above signal into a spike top).
 MAX_ENTRY_CHASE_PCT = float(os.getenv("MAX_ENTRY_CHASE_PCT", 0.015))

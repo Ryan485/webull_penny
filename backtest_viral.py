@@ -51,7 +51,12 @@ OUT_CSV = "logs/reports/backtest_viral_trades.csv"
 
 ENTRY_START = (10, 0)     # no entries before 10:00 ET
 EOD_CUTOFF = (15, 30)     # close everything at/after 15:30 ET
-COOLDOWN_MINS = 30
+COOLDOWN_MINS = int(os.environ.get("BT_COOLDOWN_MINS", "10"))
+                    # 30 -> 10 with portfolio.py (2026-07-16, owner directive
+                    # "remove the cooldown"): 30min PF 2.81 / 0min PF 2.78 /
+                    # 10min PF 3.32 (+$34.9K). The 30-min lock cost VMAR's
+                    # 10:25 recovery W (07-14) and TGHL's 12:33 window (07-16);
+                    # zero cooldown re-buys still-falling names.
 MAX_TRADES_PER_DAY = 3
 MAX_STOPS_PER_DAY = int(os.environ.get("BT_MAX_STOPS_PER_DAY", "3"))
                     # raised 2 -> 3 with portfolio.py (2026-07-16, TGHL): the
