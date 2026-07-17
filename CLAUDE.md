@@ -73,8 +73,8 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   (kept only in backtesting/engine.py).
 - `trading/portfolio.py` — per-ticker daily caps (3 trades, 3 stops — raised
   from 2 stops 2026-07-16 after TGHL; the trade cap is the binding limit now),
-  30-min cooldowns
-  after any exit, state restored across restarts (incl. closed_today so caps survive
+  10-min cooldowns
+  after any exit (30 -> 10 in v1.3), state restored across restarts (incl. closed_today so caps survive
   AND open positions with their full stop/trail/take-profit structure — positions
   were saved but never restored until 2026-07-14, so restarts silently fell back
   to main.py's broker sync with a generic 2%-ATR stop). state.json writes are
@@ -324,7 +324,23 @@ v1.3 baseline: 130 trades, +$34.9K, PF 3.32, 62% WR, $268/trade.
   12:33 window on 07-16). Full removal was NOT adopted: it is worse than
   10 min everywhere and matches the owner's own "not without strategy"
   caveat. Churn guards now: 3 trades/ticker/day + 10-min exit cooldowns.
-- Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
+- **Later EOD hold tested and REJECTED (2026-07-17, LCID):** LCID rb entry
+  15:26 was force-flattened at 15:30 (+$43) and the stock then spiked to
+  7.56 — owner asked why a working trade gets dumped instead of managed.
+  Sweep via `BT_EOD_HHMM` (env flag, default 1530; entry cutoff stays a
+  separate 15:30 constant): hold-to-15:45 = +$36.3K PF 3.23; hold-to-15:55
+  = +$35.5K PF 3.15 vs baseline 15:30 = +$36.6K PF 3.36 (138 trades, 62%
+  WR, $265/trade on the grown universe). Only 5 of 138 trades are open at
+  15:30 at all, and holding them later made 4 of 5 WORSE (SUNE gave back
+  $588 of a $706 win; CPHI turned a flat close into a -$556 stop; NNOX
+  doubled its loss; SOXS gave back $195; only ILLR improved, +$718 via
+  its capped take-profit) — net -$1.1K. Viral pennies fade into the
+  close; 15:30 sells the fade's top on average. LCID 07-17 itself is the
+  exception, not the rule (and the sim never reached its 15:26 entry —
+  the 3-trades/day cap was already spent by 13:35). Thin sample (5
+  trades), so re-sweep if more late-day winners accumulate live; the
+  flag stays for that. Late-day liquidity/slippage would only make
+  holding look worse than the no-slippage sim shows. no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.
 - **Current phase:** paper-trade 2-3 weeks (~100 trades) and compare live expectancy

@@ -50,7 +50,12 @@ SUMMARY_CSV = "logs/viral_research_summary.csv"
 OUT_CSV = "logs/reports/backtest_viral_trades.csv"
 
 ENTRY_START = (10, 0)     # no entries before 10:00 ET
-EOD_CUTOFF = (15, 30)     # close everything at/after 15:30 ET
+ENTRY_CUTOFF = (15, 30)   # no NEW entries at/after 15:30 ET
+_eod = os.environ.get("BT_EOD_HHMM", "1530")
+EOD_CUTOFF = (int(_eod[:2]), int(_eod[2:]))
+                    # force-flat time. Default 15:30 (live behavior). Sweep
+                    # 2026-07-17 (owner: don't dump a working trade at 15:30,
+                    # keep managing it) — try 1545 / 1555.
 COOLDOWN_MINS = int(os.environ.get("BT_COOLDOWN_MINS", "10"))
                     # 30 -> 10 with portfolio.py (2026-07-16, owner directive
                     # "remove the cooldown"): 30min PF 2.81 / 0min PF 2.78 /
@@ -149,7 +154,7 @@ def simulate_day(ticker: str, date_str: str, df: pd.DataFrame, trades: list) -> 
             continue
 
         # ── Entry gates (mirror check_entries) ───────────────────────────
-        if eod or hhmm < ENTRY_START:
+        if hhmm >= ENTRY_CUTOFF or hhmm < ENTRY_START:
             continue
         if exits_today >= MAX_TRADES_PER_DAY or stops_today >= MAX_STOPS_PER_DAY:
             continue
