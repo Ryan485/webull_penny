@@ -190,7 +190,8 @@ def update_all(n):
             "price": t.get("exit_price", 0),
             "pct": t.get("pnl_pct", 0), "pnl": t.get("pnl", 0),
             "reason": f"{str(t.get('exit_reason','')).upper()} "
-                      f"({t.get('pnl_pct',0):+.1%})",
+                      f"({t.get('pnl_pct',0):+.1%}) · "
+                      f"bought {_tstr(t.get('entry_time',''))}",
         })
         events.append({
             "time": t.get("entry_time", ""), "side": "BUY",
