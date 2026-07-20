@@ -167,6 +167,10 @@ v1.2 baseline on the grown universe (incl. 07-15/07-16): 126 trades,
 (same day, owner "remove the cooldown" directive): both per-ticker exit
 cooldowns cut 30 -> 10 min (see the cooldown sweep entry in Validation);
 v1.3 baseline: 130 trades, +$34.9K, PF 3.32, 62% WR, $268/trade.
+**us-penny-v1.4-dbgap60-2026-07-20** (owner directive after SLNH): double_
+bottom `MAX_GAP` cut 90 -> 60 bars so the two lows can't sit 2.5h apart (see
+the W max-gap entry in Validation); v1.4 baseline on the grown universe:
+138 trades, +$37.8K, PF 3.53, 62% WR, $274/trade.
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical
@@ -340,7 +344,27 @@ v1.3 baseline: 130 trades, +$34.9K, PF 3.32, 62% WR, $268/trade.
   the 3-trades/day cap was already spent by 13:35). Thin sample (5
   trades), so re-sweep if more late-day winners accumulate live; the
   flag stays for that. Late-day liquidity/slippage would only make
-  holding look worse than the no-slippage sim shows. no slippage (edge is 0.75%/trade vs penny spreads
+  holding look worse than the no-slippage sim shows.
+- **W max-gap 90 -> 60 ADOPTED as v1.4 (2026-07-20, SLNH):** double_bottom
+  paired SLNH's 11:14 low with its 13:44 low (86 bars / 2.5h apart) and
+  called the intervening chop a "W" -> bought 14:40, stopped -2.9%. Owner
+  rule: "a double bottom's two lows shouldn't be that far apart -- use the
+  stochastic to spot it; the two troughs should be close, like NUAI's two
+  boxes ~25 min apart." `MAX_GAP` (Low1->Low2 bar distance) is the lever;
+  swept via `DB_MAX_GAP`: 90 (frozen) 149 trades/+$37.8K/PF 3.26 vs
+  **60 138 trades/+$37.8K/PF 3.53/$274 per trade (chosen)** -- same PnL on
+  11 fewer near-breakeven pairs, and SLNH's bad W is eliminated entirely
+  (a smaller rb_retest -$95 takes its slot vs the db -$382). Below 60
+  falls off a cliff (45 -> PF 2.70, 30 -> PF 2.63: both start cutting
+  genuine quick-bounce winners), so 60 is the floor, not lower. double_
+  bottom itself 54 -> 40 trades, +$19.57K -> +$19.27K (the -$0.3K is all
+  dropped junk). MIN_GAP stays 20. The stochastic already gates the SECOND
+  bottom (deeper mode); requiring the FIRST low to be a stoch trough too (a
+  full stochastic W on BOTH boxes) is the deferred next lever if wide-but-
+  legal pairs still slip through live -- not implemented, would need its
+  own sweep. Note: 07-20 SLNH is in-sample now, so this is design data, not
+  an out-of-sample confirmation.
+- Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.
 - **Current phase:** paper-trade 2-3 weeks (~100 trades) and compare live expectancy

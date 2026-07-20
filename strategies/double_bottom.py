@@ -5,7 +5,8 @@ Rules (1-minute candles, rolling 60-bar window):
   - Swing low = pivot where lows on each side (3 bars) are strictly higher
   - Low1 must follow at least 5 candles of downward price movement
   - Bounce from Low1 must be at least max(0.3%, 1 ATR); bounce high = neckline
-  - Low2 must form 10–50 candles after Low1
+  - Low2 must form 20–60 candles after Low1 (MAX_GAP cut 90 -> 60 in v1.4,
+    2026-07-20: two bottoms 2.5h apart are not a W — owner directive)
   - Low2 must be within max(0.2%, 0.75 ATR) of Low1
   - Low2 must not close more than 0.2% below Low1
 
@@ -44,7 +45,14 @@ PIVOT = 5                        # bars that must be higher LEFT of a swing low
 PIVOT_RIGHT = 3                  # confirmation bars RIGHT of the low — fewer, so
                                  # the early entry fires while price is still low
 MIN_GAP = 20                     # Low1 → Low2 must be at least 20 min apart
-MAX_GAP = 90                     # …and at most 90 min (still same session)
+# MAX_GAP: Low1 -> Low2 upper bound (in bars). Was 90; 90 let SLNH 2026-07-20
+# pair an 11:14 low with a 13:44 low (86 bars / 2.5h) and call the chop between
+# them a "W" (owner: "a double bottom's two lows shouldn't be that far apart --
+# the two stochastic troughs should be close, like NUAI"). Swept 2026-07-20 via
+# DB_MAX_GAP: 90 PF 3.26 / 60 PF 3.53 (+$37.8K, same PnL on 11 fewer near-
+# breakeven trades, SLNH's bad W eliminated) / 45 PF 2.70 / 30 PF 2.63 (both
+# cut genuine winners). 60 chosen as v1.4 -- the floor before PnL falls off.
+MAX_GAP = int(os.environ.get("DB_MAX_GAP", "60"))
 LOW_TOLERANCE_PCT = 0.005        # 0.5% — Low2 can be within 0.5% of Low1
 LOW_ATR_TOLERANCE = 1.0          # …or within 1 ATR
 LOW2_UNDERSHOOT_PCT = 0.003      # Low2 cannot close >0.3% below Low1
