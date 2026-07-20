@@ -60,6 +60,51 @@ RETEST_IGNORE_VWAP = os.environ.get("RB_RETEST_IGNORE_VWAP", "0") == "1"
 
 PIVOT_TIE_PCT = 0.001            # equal highs ARE the level — ties don't disqualify
 
+# Overhead-resistance target cap (2026-07-20, AMC): rb used to set a blind 2R
+# target that could aim straight through a higher, unbroken 2+ touch wall just
+# above the entry. AMC 07-20 13:44: retest of the 2.38 level bought at 2.435,
+# right under the 2.44 all-time-high wall (touches 2.43/2.43/2.44), 2R target
+# 2.588 sat ABOVE it; stopped -3.3%. Mirror the cap double_bottom already
+# applies: if a distinct 2+ touch level sits between the entry and the 2R
+# target, cap the sell just under it (real take-profit, like the owner's
+# sell-at-resistance rule) and SKIP the trade when the capped reward is under
+# RES_CAP_MIN_REWARD_R. Uses rb's own level list (level = max touch high), not
+# find_overhead_resistance, whose conservative zone-BOTTOM (2.43 here) misses a
+# wall the entry has already reached. Default 0 = frozen; backtest before live.
+# off  - frozen: blind 2R target, trail does the exiting
+# cap  - cap the target at the wall AND sell there (take-profit)
+# skip - only refuse entries jammed under a wall (< RES_CAP_MIN_REWARD_R of
+#        room); if there IS room keep the 2R target + trail (don't sell at
+#        the wall). Momentum pennies blow through resistance, so selling at
+#        the wall guillotines the biggest winners (2026-07-20 sweep, AMC).
+OVERHEAD_CAP = os.environ.get("RB_OVERHEAD_CAP", "off")   # off / cap / skip
+RES_CAP_BUFFER = 0.997           # sell a hair below the wall, don't need the tag
+RES_CAP_MIN_REWARD_R = 0.5       # room under 0.5R to the wall -> no trade
+
+
+def _overhead_cap(levels, traded_level, close, stop, target):
+    """Consider the nearest distinct 2+ touch level above the entry.
+    Returns (target, take_profit, room_ok). room_ok False -> jammed under a
+    wall, skip. In 'skip' mode the target is never capped (keeps 2R + trail)."""
+    if OVERHEAD_CAP == "off":
+        return target, False, True
+    overhead = None
+    for lv, _ in levels:
+        if lv <= close:
+            continue
+        if abs(lv - traded_level) / traded_level <= CLUSTER_PCT:
+            continue  # the wall we're already trading, not overhead
+        if overhead is None or lv < overhead:
+            overhead = lv
+    if overhead is None or overhead * RES_CAP_BUFFER >= target:
+        return target, False, True
+    capped = overhead * RES_CAP_BUFFER
+    if capped - close < RES_CAP_MIN_REWARD_R * (close - stop):
+        return capped, True, False               # no room -> skip (both modes)
+    if OVERHEAD_CAP == "skip":
+        return target, False, True               # room -> keep 2R + trail
+    return capped, True, True                     # cap -> sell at the wall
+
 
 def _swing_highs(highs) -> List[int]:
     out = []
@@ -205,6 +250,10 @@ class ResistanceBreakout(BaseStrategy):
                 not_extended = close <= lv * MAX_ENTRY_EXTENSION
                 if is_green and dipped and shallow and bounced and not_extended:
                     stop = pb_low - STOP_ATR_MULT * float(atr)
+                    target = close + TARGET_R * (close - stop)
+                    target, tp, room = _overhead_cap(levels, lv, close, stop, target)
+                    if not room:
+                        continue  # jammed under a higher wall — skip level
                     return Signal(
                         ticker=ticker,
                         strategy=self.name,
@@ -215,7 +264,8 @@ class ResistanceBreakout(BaseStrategy):
                             f"bars={(n_win - 1) - brk})"
                         ),
                         stop_price=stop,
-                        target_price=close + TARGET_R * (close - stop),
+                        target_price=target,
+                        take_profit=tp,
                         ignore_vwap=RETEST_IGNORE_VWAP,
                     )
             nearest = min((lv for lv, _ in levels), key=lambda lv: abs(lv - close))
@@ -236,6 +286,12 @@ class ResistanceBreakout(BaseStrategy):
 
         stop = resistance - STOP_ATR_MULT * float(atr)
         target = close + TARGET_R * (close - stop)
+        target, tp, room = _overhead_cap(levels, resistance, close, stop, target)
+        if not room:
+            return Signal(
+                ticker, self.name, 0, entry_price=close,
+                notes=f"rb_no_room(res={resistance:.3f},wall={target:.3f})",
+            )
 
         return Signal(
             ticker=ticker,
@@ -247,4 +303,5 @@ class ResistanceBreakout(BaseStrategy):
             ),
             stop_price=stop,
             target_price=target,
+            take_profit=tp,
         )

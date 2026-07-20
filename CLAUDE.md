@@ -364,6 +364,28 @@ the W max-gap entry in Validation); v1.4 baseline on the grown universe:
   legal pairs still slip through live -- not implemented, would need its
   own sweep. Note: 07-20 SLNH is in-sample now, so this is design data, not
   an out-of-sample confirmation.
+- **rb overhead-resistance cap tested and REJECTED (2026-07-20, AMC):** AMC
+  07-20 lost -$631 across three rb stops; the 13:44 one (retest of the 2.38
+  level, bought 2.435 right under the unbroken 2.44 all-time-high wall, blind
+  2R target 2.588 sat ABOVE it, -3.3%) prompted owner fix: give rb the
+  overhead-resistance target cap double_bottom already uses. Implemented behind
+  `RB_OVERHEAD_CAP` (off/skip/cap, default off = frozen; NO version bump).
+  Note find_overhead_resistance returns None here -- its conservative zone-
+  BOTTOM (2.43) sits under the 2.435 entry -- so the cap uses rb's OWN level
+  list (level = max touch high = 2.44). Sweep: off 138 trades/+$37.8K/PF 3.53,
+  rb +$15.8K; **skip** (refuse entries with <0.5R room to the wall, keep 2R+
+  trail otherwise) 137/+$36.6K/PF 3.36, rb +$14.6K; **cap** (sell at the wall)
+  137/+$33.6K/PF 3.17, rb +$11.7K. BOTH hurt. cap guillotines the fat right
+  tail (-$2,941 over 6 capped trades: IFRX +$2,494 trailing win -> +$162 sell-
+  at-wall; NNBR -$748) because momentum pennies BLOW THROUGH resistance -- that
+  IS rb's edge (trailing stops are the whole edge per the 1y backtest). Even
+  the surgical skip-only version costs -$1.2K/PF -0.17: the 6 "jammed under a
+  wall" trades it removes were net WINNERS (+$1.3K, PRME +$931) because the
+  walls didn't hold. Owner intuition (don't buy into the wall) is right for the
+  single AMC trade but contradicted across the sample -- on viral names walls
+  are speed bumps, not ceilings. AMC 07-20 isn't in the universe (would need a
+  re-sweep once it is). Default stays off; flag kept for a re-sweep if live rb
+  shows systematic sell-into-wall losses. Don't enable without new evidence.
 - Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.
