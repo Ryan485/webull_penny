@@ -110,7 +110,39 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   it crashes console logging. Plain ASCII in log messages.
 - The catalyst gate skips only literal "unknown" — missing research (None) is allowed
   through so a slow research thread doesn't block trading.
-- SCAN_PRICE_MIN=0.5 was deliberately lowered from 1.0 (owner wants sub-$1 names like BIYA).
+- SCAN_PRICE_MIN=1.0. Was lowered 1.0->0.5 earlier (owner wanted sub-$1 names
+  like BIYA), then RAISED BACK 0.5->1.0 on 2026-07-21 (v1.5) once fees were
+  modeled: sub-$1 names pay ~1.5% round-trip IBKR commission plus the widest
+  spreads, and the sim showing them net-positive is the least trustworthy slice
+  (zero spread + survivorship). See the fee/price-floor entry below.
+- **Live P&L is now NET of IBKR commissions (2026-07-21).** `config.ibkr_commission`
+  models the IBKR Fixed US-stock tier ($0.005/share, $1 min/order, 1% of value
+  cap) and `Portfolio.close_position` subtracts a round trip (buy+sell) from
+  every trade so `pnl`/`pnl_pct` and the account curve reflect real go-live
+  costs; the fee is stored per-trade (`commission` col, appended to
+  trade_outcomes.csv via a one-time header migration). CONSEQUENCE for the
+  strategy, not yet acted on: the per-share fee is brutal on sub-$1 names
+  (10k-20k shares) — a $0.53 name pays ~1.9% round trip, larger than the
+  ~0.75% edge, so cheap tickers are structurally negative before being right
+  or wrong (KIDZ 07-21 +$40.52 gross winner -> -$115 net). $2+ names pay
+  ~0.2-0.4% and are unaffected. RESOLVED 2026-07-21: SCAN_PRICE_MIN raised
+  0.5 -> 1.0 (v1.5). Net-of-fees backtest by entry-price bucket: <$1 17
+  trades +$3.7K (fee 1.53%), $1-2 39 +$7.7K (0.73%), $2-3 32 +$5.6K, $3-5 35
+  +$7.9K, $5+ 24 -$2.1K (fee only 0.17% -- a SIGNAL problem, not a fee one).
+  Sub-$1 was still net-positive in the sim, but that slice is the least
+  trustworthy (zero spread + survivorship flatter the delisting-prone cheap
+  names), so $1.00 removes it while keeping the clean $1-2 bucket; $2.00 was
+  rejected (throws away ~$11K of real profit). Owner directive: total return
+  is the goal, and cutting the profitable $1-2 names to chase fees would hurt
+  it. The backtest (`backtest_viral.py`) now
+  subtracts the SAME fee on both legs (owner directive 2026-07-21), so it is
+  apples-to-apples with live-net: fee-adjusted baseline dropped to 147 trades
+  +$22.8K, PF 2.04, $155/trade (from gross +$37.8K/PF 3.53/$274) — fees roughly
+  HALVE the modeled edge (and notably land near the original 1y +$148/trade
+  figure). Still zero SLIPPAGE in the sim, so the real number is thinner again.
+  The fee-accounting change ALONE would not bump STRATEGY_VERSION (signals
+  unchanged); the accompanying SCAN_PRICE_MIN 0.5->1.0 universe change does ->
+  v1.5.
 - **Strategies require MIN_BARS=45, not a full 120-bar window.** Tickers with no
   premarket bars only have ~80 bars by 11:00 ET; the old `len(df) < WINDOW` check
   silently disabled double_bottom AND resistance_breakout all morning (found via
@@ -171,6 +203,16 @@ v1.3 baseline: 130 trades, +$34.9K, PF 3.32, 62% WR, $268/trade.
 bottom `MAX_GAP` cut 90 -> 60 bars so the two lows can't sit 2.5h apart (see
 the W max-gap entry in Validation); v1.4 baseline on the grown universe:
 138 trades, +$37.8K, PF 3.53, 62% WR, $274/trade.
+**us-penny-v1.5-pricefloor1-2026-07-21**: two coupled changes (owner
+directive after the KIDZ 07-21 fee finding) -- (1) live+backtest P&L is now
+NET of IBKR Fixed-tier commissions (`config.ibkr_commission`, see the fee
+bullet under Non-obvious constraints), and (2) SCAN_PRICE_MIN raised 0.5 ->
+1.0 to drop the sub-$1 names the fee+spread tax hits hardest. No signal-logic
+change. Net-of-fees baseline (before the floor change) was 147 trades +$22.8K
+PF 2.04 $155/trade; the $1 floor removes the <$1 bucket (+$3.7K sim, least
+trustworthy slice) while keeping the profitable $1-2 names. From here the
+forward-test scoreboard is net-of-fees -- do NOT compare live to the old
+gross +$37.8K figure.
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical

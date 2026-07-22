@@ -64,6 +64,7 @@ class ClosedTrade:
     notes: str = ""
     planned_risk: float = 0.0   # $ risk at sizing time (pre-fill quote - stop)
     actual_risk: float = 0.0    # $ risk after the fill (fill - stop)
+    commission: float = 0.0     # round-trip IBKR commission already netted out of pnl
 
 
 STOP_COOLDOWN_SECS = 600     # cooldown after a stop-loss exit; 30 -> 10 min
@@ -159,8 +160,15 @@ class Portfolio:
                 self._stop_cooldowns[ticker] = time.time()
             elif reason in ("take_profit", "trailing_stop"):
                 self._profit_cooldowns[ticker] = time.time()
-            pnl = (exit_price - pos.entry_price) * pos.shares
-            pnl_pct = (exit_price - pos.entry_price) / pos.entry_price
+            gross = (exit_price - pos.entry_price) * pos.shares
+            # Round-trip IBKR commission (buy + sell), netted out so pnl is the
+            # real cash the account keeps and pnl_pct is the net return.
+            commission = round(
+                config.ibkr_commission(pos.shares, pos.entry_price)
+                + config.ibkr_commission(pos.shares, exit_price), 2)
+            pnl = gross - commission
+            notional = pos.entry_price * pos.shares
+            pnl_pct = pnl / notional if notional else 0.0
             trade = ClosedTrade(
                 ticker=ticker,
                 strategy=pos.strategy,
@@ -175,6 +183,7 @@ class Portfolio:
                 notes=pos.notes,
                 planned_risk=round(pos.planned_risk * pos.shares, 2),
                 actual_risk=round(pos.initial_risk * pos.shares, 2),
+                commission=commission,
             )
             self.closed_trades.append(trade)
             self.daily_pnl += pnl
@@ -313,9 +322,37 @@ class Portfolio:
     # The extra columns track execution quality (slippage-driven risk overrun)
     # and which frozen rule-set produced the trade — only trades from the
     # frozen version count toward the formal paper forward test.
+    # "commission" is appended LAST so the first 12 columns still match the
+    # backtest CSVs; pnl is already net of it (gross = pnl + commission).
     _OUTCOME_COLS = ["date", "ticker", "strategy", "entry_time", "exit_time",
                      "entry", "exit", "shares", "pnl", "pnl_pct", "reason", "notes",
-                     "planned_risk", "actual_risk", "risk_overrun_pct", "version"]
+                     "planned_risk", "actual_risk", "risk_overrun_pct", "version",
+                     "commission"]
+
+    def _migrate_outcome_header(self) -> None:
+        """One-time: add the trailing 'commission' column to a pre-fee ledger.
+
+        Older files were written with 16 columns (no commission). Appending a
+        17-field row to them would make the CSV ragged, so rewrite the file
+        once with the new header, backfilling '' for the fee on legacy rows
+        (their pnl was already gross-of-fee; leave it untouched). Atomic
+        replace so a crash can't corrupt the ledger.
+        """
+        try:
+            with open(config.OUTCOMES_FILE, "r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+            if not rows or "commission" in rows[0]:
+                return
+            tmp = config.OUTCOMES_FILE + ".tmp"
+            with open(tmp, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(rows[0] + ["commission"])
+                for r in rows[1:]:
+                    writer.writerow(r + [""])
+            os.replace(tmp, config.OUTCOMES_FILE)
+        except Exception as e:
+            logger.warning(f"Outcome-header migration skipped: {e}")
 
     def _log_outcome(self, trade: "ClosedTrade") -> None:
         """
@@ -357,8 +394,11 @@ class Portfolio:
                     if trade.planned_risk > 0 else ""
                 ),
                 "version": config.STRATEGY_VERSION,
+                "commission": round(trade.commission, 2),
             }
             new_file = not os.path.exists(config.OUTCOMES_FILE)
+            if not new_file:
+                self._migrate_outcome_header()
             with open(config.OUTCOMES_FILE, "a", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=self._OUTCOME_COLS)
                 if new_file:

@@ -52,7 +52,12 @@ TAKE_PROFIT_R = 2.0
 TAKE_PROFIT_MIN_PCT = 0.10
 
 # --- Scanner filters ---
-SCAN_PRICE_MIN = 0.5
+# Raised 0.5 -> 1.0 on 2026-07-21 (v1.5) to sidestep the IBKR per-share fee tax:
+# sub-$1 names pay ~1.5% round-trip commission PLUS the widest spreads, and the
+# sim that showed them net-positive models zero spread + has survivorship bias,
+# so their true edge is the least trustworthy. The profitable $1-2 bucket stays.
+# See the fee/price-floor entry in webull_penny\CLAUDE.md (KIDZ 2026-07-21).
+SCAN_PRICE_MIN = 1.0
 SCAN_PRICE_MAX = 10.0
 SCAN_REL_VOL_MIN = 3.0
 SCAN_MIN_VOLUME = 300_000
@@ -67,10 +72,33 @@ DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", 8050))
 # Frozen rule-set tag stamped on every logged trade. Bump ONLY when strategy
 # logic/parameters change; trades from one version form one forward-test
 # sample and must not be mixed with trades from another.
-STRATEGY_VERSION = "us-penny-v1.4-dbgap60-2026-07-20"
+STRATEGY_VERSION = "us-penny-v1.5-pricefloor1-2026-07-21"
 # Max the live quote may sit above the signal price before a buy is skipped
 # (anti-chase; FTRK 2026-07-13 filled +4.2% above signal into a spike top).
 MAX_ENTRY_CHASE_PCT = float(os.getenv("MAX_ENTRY_CHASE_PCT", 0.015))
+
+# --- Broker commissions (IBKR, US stocks, Fixed tier) ---
+# Owner trades US stocks from Canada through IBKR at go-live; model the cost
+# NOW so paper P&L is net-of-fees and matches what live will actually clear.
+# IBKR Fixed US-stock schedule (USD): $0.005/share, $1.00 minimum per order,
+# capped at 1.0% of trade value. For a penny bot buying 10k-20k shares this is
+# the dominant cost: at ~$0.50 the per-share rate IS ~1% of value per side, so
+# a round trip can eat ~2% -- larger than the strategy's ~0.75% edge. Higher-
+# priced names ($5+) pay ~0.1%/side and are unaffected. Applied per side (entry
+# AND exit) in Portfolio.close_position.
+IBKR_PER_SHARE = float(os.getenv("IBKR_PER_SHARE", 0.005))     # USD / share
+IBKR_MIN_PER_ORDER = float(os.getenv("IBKR_MIN_PER_ORDER", 1.00))  # USD / order
+IBKR_MAX_PCT = float(os.getenv("IBKR_MAX_PCT", 0.01))          # cap: 1% of value
+
+
+def ibkr_commission(shares: int, price: float) -> float:
+    """One-side IBKR Fixed-tier US-stock commission in USD."""
+    if shares <= 0 or price <= 0:
+        return 0.0
+    comm = shares * IBKR_PER_SHARE
+    comm = min(comm, IBKR_MAX_PCT * shares * price)   # 1% of value cap
+    comm = max(comm, IBKR_MIN_PER_ORDER)              # $1 floor
+    return round(comm, 4)
 LOG_FILE = "logs/trades.log"
 STATE_FILE = "logs/state.json"
 # Append-only ledger of every LIVE closed trade. Survives the daily state

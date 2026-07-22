@@ -124,7 +124,9 @@ def simulate_day(ticker: str, date_str: str, df: pd.DataFrame, trades: list) -> 
                 exit_price, exit_reason = row["close"], "eod_close"
 
             if exit_reason:
-                pnl = (exit_price - p["entry"]) * p["shares"]
+                comm = round(config.ibkr_commission(p["shares"], p["entry"])
+                             + config.ibkr_commission(p["shares"], exit_price), 2)
+                pnl = (exit_price - p["entry"]) * p["shares"] - comm
                 trades.append({
                     "date": date_str, "ticker": ticker,
                     "strategy": p["strategy"],
@@ -134,9 +136,10 @@ def simulate_day(ticker: str, date_str: str, df: pd.DataFrame, trades: list) -> 
                     "exit": round(exit_price, 4),
                     "shares": p["shares"],
                     "pnl": round(pnl, 2),
-                    "pnl_pct": round((exit_price - p["entry"]) / p["entry"] * 100, 2),
+                    "pnl_pct": round(pnl / (p["entry"] * p["shares"]) * 100, 2),
                     "reason": exit_reason,
                     "notes": p["notes"][:60],
+                    "commission": comm,
                 })
                 exits_today += 1
                 if exit_reason == "stop_loss":
@@ -204,15 +207,18 @@ def simulate_day(ticker: str, date_str: str, df: pd.DataFrame, trades: list) -> 
     if position:
         p = position
         last = df["close"].iloc[-1]
-        pnl = (last - p["entry"]) * p["shares"]
+        comm = round(config.ibkr_commission(p["shares"], p["entry"])
+                     + config.ibkr_commission(p["shares"], last), 2)
+        pnl = (last - p["entry"]) * p["shares"] - comm
         trades.append({
             "date": date_str, "ticker": ticker, "strategy": p["strategy"],
             "entry_time": str(p["entry_ts"])[11:16],
             "exit_time": str(df.index[-1])[11:16],
             "entry": round(p["entry"], 4), "exit": round(last, 4),
             "shares": p["shares"], "pnl": round(pnl, 2),
-            "pnl_pct": round((last - p["entry"]) / p["entry"] * 100, 2),
+            "pnl_pct": round(pnl / (p["entry"] * p["shares"]) * 100, 2),
             "reason": "eod_close", "notes": p["notes"][:60],
+            "commission": comm,
         })
 
 
