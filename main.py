@@ -226,6 +226,17 @@ def check_entries(state: BotState, portfolio: Portfolio, broker) -> None:
                 stop, target = best.stop_price, best.target_price
             else:
                 stop, target = calc_stop_and_target(live_price, atr)
+            # v1.6: never let the stop sit inside normal intraday noise. Applied
+            # here (before sizing) so it covers every strategy incl. the
+            # calc_stop_and_target fallback, and so calc_position_size buys
+            # proportionally fewer shares -- same dollar risk, lower fees.
+            floor_stop = live_price * (1 - config.MIN_STOP_PCT)
+            if stop > floor_stop:
+                logger.info(
+                    f"{ticker}: stop {stop:.4f} inside {config.MIN_STOP_PCT:.1%} "
+                    f"noise floor -> widened to {floor_stop:.4f}"
+                )
+                stop = floor_stop
             account_val = broker.get_account_value()
             shares = calc_position_size(account_val, live_price, stop)
 

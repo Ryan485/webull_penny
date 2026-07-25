@@ -213,6 +213,14 @@ PF 2.04 $155/trade; the $1 floor removes the <$1 bucket (+$3.7K sim, least
 trustworthy slice) while keeping the profitable $1-2 names. From here the
 forward-test scoreboard is net-of-fees -- do NOT compare live to the old
 gross +$37.8K figure.
+**us-penny-v1.6-stopfloor3-2026-07-24**: ONE change -- a new
+`config.MIN_STOP_PCT` = 3% minimum stop distance, applied in main.py before
+sizing and mirrored in backtest_viral.py. Motivated by the first full month of
+live data (28 trades, -$5,871 net): the structural stop had a MEDIAN distance
+of 1.53% while the median dip a trade had to survive before running was 3.9%,
+so 67% of stopped-out trades recovered above our entry. Raising STOP_ATR_MULT
+0.5 -> 1.0 was tested at the same time and REJECTED (made it worse; ATR-scaling
+is what fails on thin IEX names). See the month-1 review entry in Validation.
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical
@@ -431,9 +439,58 @@ gross +$37.8K figure.
 - Known biases, all optimistic: no slippage (edge is 0.75%/trade vs penny spreads
   0.3-1% — real results likely ~half), survivorship (delisted names missing),
   no cross-ticker MAX_POSITIONS cap in the sim.
-- **Current phase:** paper-trade 2-3 weeks (~100 trades) and compare live expectancy
-  vs the backtest's +$148/trade. Watch whether resistance_breakout ever fires live
-  (0 trades in the 5-day backtest; may be over-strict). Fund only if paper holds up.
+- **MONTH-1 LIVE REVIEW (2026-07-24, 28 trades 07-14 -> 07-24, -$5,871 net,
+  25% WR, PF 0.16).** Owner asked for a full review of the live logs. Findings,
+  all measured on real fills + real 1m bars (single-trade replay, not universe
+  sweeps):
+  1. **Losses match the model; wins do not.** Avg loss -$334 live vs -$347
+     modeled (fine), but avg win +$162 vs +$531 modeled. Win/loss ratio 0.49:1.
+     Stop-out rate 64% live vs 37% in the sim; trailing-stop wins +1.01% live
+     vs +3.07% sim. Signals find the moves - the exits give them away.
+  2. **The stop sat inside the noise.** Median structural stop 1.53% of entry;
+     median dip a trade had to survive before running 3.9%. Of 18 stopped-out
+     trades, **12 (67%) recovered back above our entry** and 6 would have hit
+     the full 2R target. TGHL stopped in 2 min then ran +19.4%; KIDZ 1 min then
+     +19.4%; EHGO 2 min then +13.2%. -> fixed as v1.6 (MIN_STOP_PCT).
+  3. **Execution costs about half the loss:** commissions $1,554 + exit
+     slippage $1,452 (avg 0.72% worse than the stop price; VMAR -2.8%,
+     EHGO -2.8%) = ~$3,006 of the $5,871. Fix is LIMIT orders, not filters -
+     deferred, do it as its own change.
+  4. **Signal quality differs sharply by strategy** (MFE/MAE on real bars,
+     independent of exit rules): double_bottom median MFE +10.3% vs MAE -3.6%
+     (2.9:1, real edge, 6/10 ran >5%); resistance_breakout median MFE +1.4%
+     vs MAE -2.2% (0.6:1) with 7 of 17 never running even +1% - and rb is 61%
+     of all live trades. Not an AMC artifact (median identical excluding it).
+     The backtest agreed directionally ($71/trade rb vs $322 db). Owner
+     decision 2026-07-24: **do NOT cut rb yet** - 17 trades is too thin
+     (margin of error ~+/-12 pts on win rate at n=17; ~50-100 needed), paper
+     trading is free, so keep collecting. Revisit at ~50 rb trades.
+  5. **The 20% cost cap binds on 28/28 trades** - i.e. position size is set by
+     notional (~$10.5K), NOT by risk, so `calc_position_size`'s 2% risk rule
+     never binds and actual risk has been only ~0.4% of account. CONSEQUENCE:
+     a wider stop does NOT reduce share count, so it raises dollar risk per
+     trade (~$202 -> ~$342 under v1.6) and does NOT reduce commissions. Any
+     future analysis that assumes "wider stop = fewer shares = same risk" is
+     WRONG for this bot. Sizing itself is a live open question, untouched.
+- **Stop noise-floor ADOPTED as v1.6 (2026-07-24):** `config.MIN_STOP_PCT`=3%,
+  applied in main.py before sizing (mirrored in backtest_viral.py). Swept on
+  the 28 real live entries using the REAL sizing function: baseline -$3,569
+  (7W) -> floor 3% **-$2,160 (11W)** -> floor 4% -$2,081 (11W). Raising
+  STOP_ATR_MULT 0.5->1.0 instead/as well was REJECTED (mult only -$3,615;
+  mult+floor -$2,651, i.e. worse than floor alone) - ATR-scaling is precisely
+  what breaks on thin IEX names where ATR is understated (ATAI 0.22% ATR gave
+  a 0.60% stop). Flat percentage floor compensates for a known feed bias.
+  **CAVEAT - the evidence conflicts:** the same change makes the viral
+  BACKTEST worse (+$22.8K/PF 2.04 -> +$17.5K/PF 1.49, avg loss -$347 ->
+  -$608). The sim models ZERO slippage and perfect stop fills, so it cannot
+  see the harm a too-tight stop causes and only sees the bigger losses - it is
+  structurally biased toward tight stops. The live replay is the more relevant
+  evidence for this specific question, but n=28 is small. The forward test
+  settles it; if live does not improve, revert this first.
+- **Current phase:** forward-test v1.6 on paper. Watch (a) whether stop-outs
+  fall from 64%, (b) whether avg win rises from $162 toward the modeled $531,
+  (c) resistance_breakout trade count toward ~50 for the keep/cut decision.
+  Scoreboard is NET of fees - do not compare to the old gross figures.
 
 ## Go-live plan (decided, not yet started)
 - Webull Canada has **no API** (app-only) — that's why execution is Alpaca paper now.

@@ -40,7 +40,9 @@ BREAKOUT_BUFFER = 1.002          # close must clear resistance by 0.2%
 MAX_ENTRY_EXTENSION = 1.02       # …but not more than 2% above (don't chase)
 FRESH_BREAK_BARS = 3             # may enter up to 3 bars after the first break
 MIN_VOL_MULT = 1.5               # breakout volume ≥ 1.5x average
-STOP_ATR_MULT = 0.5
+# Stays 0.5 -- raising it was tested and rejected 2026-07-24, same as
+# double_bottom. The v1.6 stop fix is config.MIN_STOP_PCT, not this.
+STOP_ATR_MULT = float(os.environ.get("RB_STOP_ATR_MULT", "0.5"))
 TARGET_R = 2.0
 
 # Pullback-retest entry (added 2026-07-07): a level whose break has gone

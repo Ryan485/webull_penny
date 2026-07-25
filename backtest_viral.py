@@ -189,6 +189,8 @@ def simulate_day(ticker: str, date_str: str, df: pd.DataFrame, trades: list) -> 
             stop, target = best.stop_price, best.target_price
         else:
             stop, target = calc_stop_and_target(entry, atr)
+        # v1.6 noise floor - must mirror main.py exactly or sim and live diverge.
+        stop = min(stop, entry * (1 - config.MIN_STOP_PCT))
         if stop >= entry:
             continue
         shares = calc_position_size(config.ACCOUNT_SIZE, entry, stop)

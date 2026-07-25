@@ -71,7 +71,12 @@ MAX_BOUNCE_PCT = float(os.environ.get("DB_MAX_DEPTH_PCT", "0.20"))
 DOWNTREND_LOOKBACK = 5
 BREAKOUT_BUFFER = 1.0005         # close must clear neckline by 5 bps
 MAX_ENTRY_EXTENSION = 1.01       # …but not more than 1% above neckline (don't chase)
-STOP_ATR_MULT = 0.5
+# Stays 0.5. Raising it to 1.0 was TESTED on the 28 live trades (2026-07-24)
+# and REJECTED: it made things worse (-$2,160 floor-only vs -$2,651 with the
+# mult raise) because scaling by IEX ATR is exactly what fails on thin names
+# where ATR is understated. The v1.6 fix is the flat MIN_STOP_PCT floor in
+# config.py instead. Flag kept for a re-test on better (SIP) data.
+STOP_ATR_MULT = float(os.environ.get("DB_STOP_ATR_MULT", "0.5"))
 
 # Early entry (second-bottom confirmation)
 EARLY_MAX_BARS_AFTER_LOW2 = 20   # bounce must confirm within 20 bars of Low2

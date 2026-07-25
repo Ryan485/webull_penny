@@ -46,6 +46,19 @@ AVG_VOL_PERIOD = 20
 # ATR stop multiplier and hard floor
 ATR_STOP_MULT = 1.5
 MAX_STOP_PCT = 0.05
+# Minimum stop distance as a fraction of entry (v1.6, 2026-07-24).
+# The structural stops (pattern low - N*ATR) came out at a MEDIAN of 1.53% of
+# entry, while the median dip a live trade had to survive before running was
+# 3.9% -- i.e. the stop sat INSIDE normal noise and 67% of stopped-out trades
+# recovered above our entry (6 of 18 went on to reach the full 2R target).
+# Root cause is partly the data feed: IEX ATR understates true volatility on
+# thin names (ATAI 0.22% ATR -> a 0.60% stop), so a percentage floor is the
+# right compensation for a known feed bias, not a curve-fit. Applied in main.py
+# BEFORE position sizing, so a wider stop simply buys fewer shares: the dollar
+# risk per trade is unchanged and commissions DROP (fewer shares).
+# NOTE: at 3.0% this floor binds on ~89% of the observed live trades, so in
+# practice the stop is "3% of entry, or the structural stop when that is wider".
+MIN_STOP_PCT = float(os.getenv("MIN_STOP_PCT", 0.03))
 
 # Take profit: max(2R, entry * 1.10)
 TAKE_PROFIT_R = 2.0
@@ -72,7 +85,7 @@ DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", 8050))
 # Frozen rule-set tag stamped on every logged trade. Bump ONLY when strategy
 # logic/parameters change; trades from one version form one forward-test
 # sample and must not be mixed with trades from another.
-STRATEGY_VERSION = "us-penny-v1.5-pricefloor1-2026-07-21"
+STRATEGY_VERSION = "us-penny-v1.6-stopfloor3-2026-07-24"
 # Max the live quote may sit above the signal price before a buy is skipped
 # (anti-chase; FTRK 2026-07-13 filled +4.2% above signal into a spike top).
 MAX_ENTRY_CHASE_PCT = float(os.getenv("MAX_ENTRY_CHASE_PCT", 0.015))
