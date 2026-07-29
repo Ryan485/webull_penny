@@ -4,3 +4,8 @@ __pycache__/
 *.pyc
 logs/
 venv/
+
+*.stackdump
+
+.claude/settings.local.json
+.codex-reviews/
