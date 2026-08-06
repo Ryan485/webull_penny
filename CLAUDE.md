@@ -1,4 +1,4 @@
-# CashCow Penny Bot
+﻿# CashCow Penny Bot
 
 > **Maintenance rule:** if you change strategy logic, entry/exit gates, config
 > defaults, broker setup, or learn something non-obvious the hard way, update
@@ -568,68 +568,3 @@ box-range Validation entry) predates this change and is unaffected by it
   audited 2026-07-07, the bot never used them (sizing works off account equity).
 - At go-live, upgrade data: IBKR bundle (~$10/mo) or Alpaca SIP ($99/mo, zero code change).
 
-## Claude <-> Codex consensus review (added 2026-07-29)
-Every coding change goes through an unbounded two-agent review before it may be
-committed. Claude implements + tests, leaves everything UNCOMMITTED, and ends its
-message with `[CODEX_REVIEW_READY]` as the ENTIRE final non-empty line (the marker
-inside a code block, quotation, or earlier paragraph does NOT trigger).
-
-The Stop hook (`.claude/hooks/codex-review.ps1`) then:
-1. hashes every change that would enter the commit (manifest of raw file bytes,
-   so git's CRLF renormalization cannot make it nondeterministic; gitignored
-   files are excluded, so review artifacts never affect the hash);
-2. builds an IMMUTABLE snapshot worktree -- a clean HEAD checkout plus a
-   byte-exact copy of that manifest, built in TEMP so it cannot perturb the hash,
-   and self-verified by re-hashing it. Gitignored files (`.env`, `did.bin`,
-   `logs/`) are absent by construction, so Codex never sees credentials;
-3. runs `codex exec -s read-only -C <snapshot> -o <file>`. Use `exec`, NOT
-   `codex review`: `review` has no `-o`, so its verdict would have to be scraped
-   from stdout that contains the transcript of every command Codex ran -- and
-   `CODEX_REVIEW.md` itself contains literal `VERDICT:` lines, which would trip
-   the duplicate-verdict guard on every single round. `review` also exits 0 with
-   no verdict when there is nothing to review, and it reads the live tree
-   (exposing `.env`). All three verified empirically 2026-07-29;
-4. parses the verdict strictly -- missing, duplicated, non-integer, or
-   contradictory fields all count as CHANGES_REQUESTED;
-5. re-hashes afterwards and VOIDS the round if the tree moved during review.
-
-Once the marker is seen the gate FAILS CLOSED: auth failure, timeout, bad
-verdict, hash failure, missing handoff, a moved tree, or any exception blocks the
-turn and is reported. Every attempt appends to `.codex-reviews/audit.jsonl`; the
-owner-facing digest is `.codex-reviews/REVIEW-SUMMARY.md`. Codex's contract is
-`AGENTS.md`, which mandates reading `CODEX_REVIEW.md` in full.
-
-Rounds are UNLIMITED. `stop_hook_active` is deliberately NOT the terminator (it
-is true from round 2 onward and would cap the cycle at one round); it is used only
-to corroborate a loop, detect state desync, and warn when a turn ends with
-findings still open. The cycle pauses only when the fingerprint (diff + handoff +
-override + verdict + open count) repeats unchanged -- that is deadlock, never
-consensus, and it goes to the owner. Record owner rulings in
-`.codex-reviews/override.json`; that counts as progress and resumes the cycle.
-
-Consensus does NOT authorize a commit. The commit guard is **always on**: every
-`git commit` requires an APPROVED verdict, 0 open findings, an unconsumed owner
-authorization recorded by `.claude/hooks/authorize-commit.ps1`, and a tree that
-still matches the approved hash. `posttool-consume.ps1` consumes the
-authorization only when HEAD actually moved, then clears the verdict so the next
-commit needs a fresh review -- a failed or cancelled commit cannot authorize a
-later changed diff. Pushing needs its own separate authorization.
-These are WORKFLOW SAFEGUARDS, NOT a sandbox: they match command text and only
-govern tool calls made through Claude Code. The owner committing from their own
-terminal is unaffected -- that is the intended emergency escape hatch.
-Editing the repo is blocked while `.codex-reviews/review.lock` exists.
-
-Tests: `py -3.12 -m pytest tests -q` (`py -3.12 -m pip install -r
-requirements-dev.txt`). `tests/test_risk_invariants.py` locks the month-1
-findings: the 20% cost cap binding, `MIN_STOP_PCT` in both directions, the
-commission model's three regimes, and sim/live parity on the stop floor.
-RESOLVED (found 2026-07-29 as R1-INVALID-STOP, fixed same session): the
-finding above -- `calc_position_size` floored risk-per-share at $0.01 and
-returned `max(shares, 1)`, unable to reject a stop at or above entry, and
-`main.py` had no explicit `stop >= entry` guard, relying only on
-`MIN_STOP_PCT > 0` -- is fixed. `trading/risk_manager.stop_is_valid()` is now
-the explicit guard, checked in both `main.py` and `backtest_viral.py`
-immediately before sizing, and `calc_position_size` itself fails closed
-(returns 0) on an invalid stop rather than flooring it. `MIN_STOP_PCT=0` is
-now safe to set deliberately (the explicit guard covers it), not just
-tolerated. See `tests/test_risk_invariants.py`.
