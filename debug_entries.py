@@ -8,11 +8,9 @@ logging.basicConfig(level=logging.WARNING)
 from data.scanner import scan_movers as scan_webull
 from data.market_data import get_live_bars, is_market_open
 from data.indicators import compute_all
-from strategies.double_bottom import DoubleBottom
-from strategies.trend_reversal import TrendReversal
-from strategies.resistance_breakout import ResistanceBreakout
+from strategies.registry import build_strategies
 
-STRATEGIES = [DoubleBottom(), TrendReversal(), ResistanceBreakout()]
+STRATEGIES = build_strategies()   # config.ENABLED_STRATEGIES
 
 print(f"Market open: {is_market_open()}")
 print("Getting watchlist...")

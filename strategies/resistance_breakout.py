@@ -23,7 +23,7 @@ from typing import List, Optional
 
 import pandas as pd
 
-from strategies.base import BaseStrategy, Signal
+from strategies.base import BaseStrategy, Signal, build_capped_signal
 
 
 WINDOW = 120
@@ -86,10 +86,14 @@ RES_CAP_MIN_REWARD_R = 0.5       # room under 0.5R to the wall -> no trade
 
 def _overhead_cap(levels, traded_level, close, stop, target):
     """Consider the nearest distinct 2+ touch level above the entry.
-    Returns (target, take_profit, room_ok). room_ok False -> jammed under a
-    wall, skip. In 'skip' mode the target is never capped (keeps 2R + trail)."""
+    Returns (target, take_profit, room_ok, min_reward_r). room_ok False ->
+    jammed under a wall, skip. In 'skip' mode the target is never capped
+    (keeps 2R + trail). min_reward_r returned alongside the other three so
+    every Signal(...) call site unpacks it from here rather than hardcoding
+    the module constant separately (Codex NEW-CAPPED-TARGET-QUOTE-DRIFT,
+    round 5, 2026-08-05 -- same fix as double_bottom._cap_target_at_resistance)."""
     if OVERHEAD_CAP == "off":
-        return target, False, True
+        return target, False, True, RES_CAP_MIN_REWARD_R
     overhead = None
     for lv, _ in levels:
         if lv <= close:
@@ -99,13 +103,13 @@ def _overhead_cap(levels, traded_level, close, stop, target):
         if overhead is None or lv < overhead:
             overhead = lv
     if overhead is None or overhead * RES_CAP_BUFFER >= target:
-        return target, False, True
+        return target, False, True, RES_CAP_MIN_REWARD_R
     capped = overhead * RES_CAP_BUFFER
     if capped - close < RES_CAP_MIN_REWARD_R * (close - stop):
-        return capped, True, False               # no room -> skip (both modes)
+        return capped, True, False, RES_CAP_MIN_REWARD_R   # no room -> skip (both modes)
     if OVERHEAD_CAP == "skip":
-        return target, False, True               # room -> keep 2R + trail
-    return capped, True, True                     # cap -> sell at the wall
+        return target, False, True, RES_CAP_MIN_REWARD_R   # room -> keep 2R + trail
+    return capped, True, True, RES_CAP_MIN_REWARD_R         # cap -> sell at the wall
 
 
 def _swing_highs(highs) -> List[int]:
@@ -253,10 +257,10 @@ class ResistanceBreakout(BaseStrategy):
                 if is_green and dipped and shallow and bounced and not_extended:
                     stop = pb_low - STOP_ATR_MULT * float(atr)
                     target = close + TARGET_R * (close - stop)
-                    target, tp, room = _overhead_cap(levels, lv, close, stop, target)
-                    if not room:
+                    cap_result = _overhead_cap(levels, lv, close, stop, target)
+                    if not cap_result[2]:   # room_ok
                         continue  # jammed under a higher wall — skip level
-                    return Signal(
+                    return build_capped_signal(
                         ticker=ticker,
                         strategy=self.name,
                         score=5,
@@ -266,8 +270,7 @@ class ResistanceBreakout(BaseStrategy):
                             f"bars={(n_win - 1) - brk})"
                         ),
                         stop_price=stop,
-                        target_price=target,
-                        take_profit=tp,
+                        cap_result=cap_result,
                         ignore_vwap=RETEST_IGNORE_VWAP,
                     )
             nearest = min((lv for lv, _ in levels), key=lambda lv: abs(lv - close))
@@ -288,14 +291,14 @@ class ResistanceBreakout(BaseStrategy):
 
         stop = resistance - STOP_ATR_MULT * float(atr)
         target = close + TARGET_R * (close - stop)
-        target, tp, room = _overhead_cap(levels, resistance, close, stop, target)
-        if not room:
+        cap_result = _overhead_cap(levels, resistance, close, stop, target)
+        if not cap_result[2]:   # room_ok
             return Signal(
                 ticker, self.name, 0, entry_price=close,
-                notes=f"rb_no_room(res={resistance:.3f},wall={target:.3f})",
+                notes=f"rb_no_room(res={resistance:.3f},wall={cap_result[0]:.3f})",
             )
 
-        return Signal(
+        return build_capped_signal(
             ticker=ticker,
             strategy=self.name,
             score=5,
@@ -304,6 +307,5 @@ class ResistanceBreakout(BaseStrategy):
                 f"rb_breakout(res={resistance:.3f},vol={vol/avg_vol:.1f}x)"
             ),
             stop_price=stop,
-            target_price=target,
-            take_profit=tp,
+            cap_result=cap_result,
         )

@@ -9,6 +9,7 @@ Usage:
 """
 import argparse
 import logging
+import math
 import os
 import socket
 import sys
@@ -27,13 +28,11 @@ from data.indicators import compute_all
 from data.market_data import get_live_bars, get_prior_close, is_market_open
 from data.research import get_catalyst
 from data.scanner import get_watchlist
-from strategies.double_bottom import DoubleBottom
-from strategies.trend_reversal import TrendReversal
-from strategies.resistance_breakout import ResistanceBreakout
+from strategies.registry import build_strategies
 from trading.broker import create_broker
 from trading.portfolio import Portfolio, Position
 from trading.risk_manager import (
-    calc_stop_and_target, calc_position_size, daily_halt_triggered
+    calc_stop_and_target, calc_position_size, daily_halt_triggered, stop_is_valid
 )
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -50,7 +49,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 ET = pytz.timezone("America/New_York")
 
-STRATEGIES = [DoubleBottom(), TrendReversal(), ResistanceBreakout()]
+# Built from config.ENABLED_STRATEGIES so live and backtest can never disagree
+# about what is running. Raises on an unknown/empty spec rather than trading
+# nothing silently.
+STRATEGIES = build_strategies()
 
 # No entries in the first 30 min (open whipsaw) — losses clustered 9:47-10:04
 ENTRY_START_HOUR, ENTRY_START_MIN = 10, 0
@@ -204,8 +206,24 @@ def check_entries(state: BotState, portfolio: Portfolio, broker) -> None:
 
             logger.info(f"SIGNAL {ticker}: {best.strategy} score={best.score} entry={best.entry_price:.4f}")
 
-            # Confirm price from broker (more accurate than last candle close)
-            live_price = broker.get_quote(ticker) or best.entry_price
+            # Confirm price from broker (more accurate than last candle close).
+            # MUST be a real, current, executable quote -- silently falling
+            # back to the stale signal candle price when the broker quote is
+            # unavailable defeats every guard below that exists specifically
+            # to catch the fill diverging from the validated price (chase
+            # guard, noise floor, reward-drift revalidation): with the
+            # fallback, live_price == best.entry_price exactly, so those
+            # guards would see zero drift and wave through a market order
+            # whose actual fill price is genuinely unknown (Codex
+            # NEW-MISSING-LIVE-QUOTE-FAILS-OPEN, 2026-08-05).
+            quote = broker.get_quote(ticker)
+            if quote is None or not math.isfinite(quote) or quote <= 0:
+                logger.warning(
+                    f"SKIP {ticker}: no valid broker quote available "
+                    f"(got {quote!r}) - not submitting without a verified price"
+                )
+                continue
+            live_price = quote
             # Chase guard (added 2026-07-13, FTRK): a market order placed into
             # a vertical spike fills way above the signal (FTRK 14:29: signal
             # 0.6332, fill 0.66 = +4.2%, then it collapsed for -6.9%). If the
@@ -237,6 +255,41 @@ def check_entries(state: BotState, portfolio: Portfolio, broker) -> None:
                     f"noise floor -> widened to {floor_stop:.4f}"
                 )
                 stop = floor_stop
+            # Explicit stop sanity check immediately before sizing/submission.
+            # The floor clamp above is NOT a guarantee on its own: it is skipped
+            # entirely when floor_stop is NaN, and it yields stop == entry when
+            # MIN_STOP_PCT is 0. Either case used to reach place_market_buy with
+            # no working protective exit (Codex R1-INVALID-STOP).
+            if not stop_is_valid(live_price, stop):
+                logger.error(
+                    f"SKIP {ticker}: invalid stop {stop} for entry {live_price} "
+                    f"(MIN_STOP_PCT={config.MIN_STOP_PCT}) - not submitting an order"
+                )
+                continue
+            # A signal with take_profit=True carries a FIXED target price (box
+            # top / capped overhead resistance), unlike an advisory target,
+            # which is a MULTIPLE of risk at the entry and so self-corrects
+            # when the entry shifts. If live_price drifts up within the chase
+            # guard's allowance, risk grows and reward shrinks against that
+            # fixed target, and a trade that cleared its strategy's reward
+            # floor at the candle close can fall well under it by the time it
+            # is actually filled (Codex NEW-BOX-REWARD-QUOTE-DRIFT, then
+            # generalized to every capped-target strategy as
+            # NEW-CAPPED-TARGET-QUOTE-DRIFT, 2026-08-04: 1.06R at close ->
+            # 0.37R at an allowed +1.5% quote). Revalidate at the executable
+            # quote and final stop, not the stale close-time values.
+            if best.take_profit and best.min_reward_r is not None:
+                live_reward = target - live_price
+                live_risk = live_price - stop
+                if live_reward < best.min_reward_r * live_risk:
+                    live_r = live_reward / live_risk if live_risk > 0 else float("-inf")
+                    logger.info(
+                        f"SKIP {ticker}: {best.strategy} reward fell to "
+                        f"{live_r:.2f}R at live quote {live_price:.4f} "
+                        f"(target {target:.4f}), below {best.min_reward_r}R "
+                        f"floor - not chasing into a worse trade"
+                    )
+                    continue
             account_val = broker.get_account_value()
             shares = calc_position_size(account_val, live_price, stop)
 
@@ -391,7 +444,7 @@ def trading_loop(broker, portfolio: Portfolio, stop_event: threading.Event,
             if not _halt_logged:
                 logger.warning(
                     f"DAILY HALT triggered. P&L=${portfolio.daily_pnl:.2f} "
-                    f"({portfolio.daily_pnl/portfolio.account_value:.1%}) — no new entries until tomorrow."
+                    f"({portfolio.daily_pnl/portfolio.account_value:.1%}) - no new entries until tomorrow."
                 )
                 _halt_logged = True
             portfolio._save_state()
@@ -532,6 +585,12 @@ def main():
         logger.info(
             f"Trading loop started | broker={config.BROKER}, "
             f"account=${portfolio.account_value:,.2f}"
+        )
+        # Log the ACTIVE set explicitly: a strategy experiment must be obvious
+        # in the log, not something you infer from which signals never appear.
+        logger.info(
+            f"Strategies active: {', '.join(s.name for s in STRATEGIES)} "
+            f"| version={config.OUTCOME_VERSION}"
         )
 
     if not args.no_dash:

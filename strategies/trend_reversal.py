@@ -44,7 +44,7 @@ from typing import List, Optional
 
 import pandas as pd
 
-from strategies.base import BaseStrategy, Signal
+from strategies.base import BaseStrategy, Signal, build_capped_signal
 from strategies.double_bottom import _cap_target_at_resistance
 
 
@@ -170,14 +170,14 @@ class TrendReversal(BaseStrategy):
                         ticker, self.name, 0, entry_price=close,
                         notes=f"rev_no_vol_confirm(neck={neckline:.3f})",
                     )
-                target, tp, room = _cap_target_at_resistance(
+                cap_result = _cap_target_at_resistance(
                     df, close, stop, neckline + depth, atr)
-                if not room:
+                if not cap_result[2]:   # room_ok
                     return Signal(
                         ticker, self.name, 0, entry_price=close,
-                        notes=f"rev_no_room(res_target={target:.3f})",
+                        notes=f"rev_no_room(res_target={cap_result[0]:.3f})",
                     )
-                return Signal(
+                return build_capped_signal(
                     ticker=ticker,
                     strategy=self.name,
                     score=5,
@@ -187,8 +187,7 @@ class TrendReversal(BaseStrategy):
                         f"neck={neckline:.3f},vol={vol/avg_vol:.1f}x)"
                     ),
                     stop_price=stop,
-                    target_price=target,
-                    take_profit=tp,
+                    cap_result=cap_result,
                 )
 
             # ── RETEST entry: broke earlier, pulled back to the neckline
@@ -201,14 +200,14 @@ class TrendReversal(BaseStrategy):
                 not_extended = close <= neckline * MAX_ENTRY_EXTENSION
                 if is_green and dipped and held and bounced and not_extended:
                     rt_stop = pb_low - STOP_ATR_MULT * atr
-                    target, tp, room = _cap_target_at_resistance(
+                    cap_result = _cap_target_at_resistance(
                         df, close, rt_stop, neckline + depth, atr)
-                    if not room:
+                    if not cap_result[2]:   # room_ok
                         return Signal(
                             ticker, self.name, 0, entry_price=close,
-                            notes=f"rev_no_room(retest,res_target={target:.3f})",
+                            notes=f"rev_no_room(retest,res_target={cap_result[0]:.3f})",
                         )
-                    return Signal(
+                    return build_capped_signal(
                         ticker=ticker,
                         strategy=self.name,
                         score=5,
@@ -218,8 +217,7 @@ class TrendReversal(BaseStrategy):
                             f"pb_low={pb_low:.3f},bars={bars_since_break})"
                         ),
                         stop_price=rt_stop,
-                        target_price=target,
-                        take_profit=tp,
+                        cap_result=cap_result,
                     )
 
         return Signal(ticker, self.name, 0, entry_price=close,

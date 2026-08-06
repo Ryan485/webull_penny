@@ -5,7 +5,9 @@ Universe: every (date, ticker) recorded in logs/viral_research_summary.csv
 Data:     Alpaca historical 1-minute IEX bars (same feed the live bot uses)
 
 Mirrors main.py exactly:
-  - Strategies: DoubleBottom, TrendReversal, ResistanceBreakout
+  - Strategies: whatever config.ENABLED_STRATEGIES names (same switch as live).
+    Default is the frozen set: DoubleBottom, TrendReversal, ResistanceBreakout.
+    Experiment: ENABLED_STRATEGIES=box_range BT_TAG=box py -3.12 backtest_viral.py
   - Entry gates: after 10:00 ET, before 15:30 ET, close >= VWAP
   - Stop/target from strategy overrides, else calc_stop_and_target
   - Trailing stops: trail 0.75R below high-water once +1R is reached
@@ -35,19 +37,23 @@ import pytz
 import config
 from data.indicators import compute_all
 from data.market_data import get_bars_alpaca
-from strategies.double_bottom import DoubleBottom
-from strategies.trend_reversal import TrendReversal
-from strategies.resistance_breakout import ResistanceBreakout
-from trading.risk_manager import calc_stop_and_target, calc_position_size
+from strategies.registry import build_strategies
+from trading.risk_manager import (
+    calc_stop_and_target, calc_position_size, stop_is_valid
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 ET = pytz.timezone("America/New_York")
 
-STRATEGIES = [DoubleBottom(), TrendReversal(), ResistanceBreakout()]
+STRATEGIES = build_strategies()   # config.ENABLED_STRATEGIES — same set as live
 
 SUMMARY_CSV = "logs/viral_research_summary.csv"
-OUT_CSV = "logs/reports/backtest_viral_trades.csv"
+_tag = os.environ.get("BT_TAG", "").strip()
+OUT_CSV = (f"logs/reports/backtest_viral_trades_{_tag}.csv" if _tag
+           else "logs/reports/backtest_viral_trades.csv")
+                    # BT_TAG keeps an experiment run from overwriting the
+                    # frozen baseline trade file (2026-08-04).
 
 ENTRY_START = (10, 0)     # no entries before 10:00 ET
 ENTRY_CUTOFF = (15, 30)   # no NEW entries at/after 15:30 ET
@@ -191,8 +197,24 @@ def simulate_day(ticker: str, date_str: str, df: pd.DataFrame, trades: list) -> 
             stop, target = calc_stop_and_target(entry, atr)
         # v1.6 noise floor - must mirror main.py exactly or sim and live diverge.
         stop = min(stop, entry * (1 - config.MIN_STOP_PCT))
-        if stop >= entry:
+        # Same explicit validity gate as main.py (NaN-safe; `stop >= entry` alone
+        # is not, because every comparison against NaN is False).
+        if not stop_is_valid(entry, stop):
             continue
+        # Same generic reward-floor revalidation as main.py, AFTER the noise
+        # floor above may have widened the stop (Codex NEW-CAPPED-REWARD-
+        # BACKTEST-PARITY, 2026-08-04): a capped signal's reward is validated
+        # by its strategy against its ORIGINAL structural stop, but the v1.6
+        # floor can widen that stop here too, shrinking the reward the same
+        # way live-quote drift does. Without this the sim can take a trade
+        # live would now reject, silently diverging. The sim has no separate
+        # live-quote concept (zero slippage by design), so this checks the
+        # fill price (entry) rather than main.py's live_price -- the stop-
+        # floor-widening half of the vulnerability, not the quote-drift half,
+        # which cannot occur in a fills-at-close simulation.
+        if best.take_profit and best.min_reward_r is not None:
+            if (target - entry) < best.min_reward_r * (entry - stop):
+                continue
         shares = calc_position_size(config.ACCOUNT_SIZE, entry, stop)
         if shares < 1:
             continue
@@ -228,7 +250,8 @@ def main():
     universe = load_universe()
     n_days = len(universe)
     n_pairs = sum(len(t) for t in universe.values())
-    print(f"Universe: {n_pairs} ticker-days across {n_days} dates\n")
+    print(f"Universe: {n_pairs} ticker-days across {n_days} dates")
+    print(f"Strategies: {', '.join(s.name for s in STRATEGIES)}\n")
 
     trades = []
     no_data = []
@@ -263,7 +286,7 @@ def main():
     pf = gross_p / gross_l if gross_l > 0 else float("inf")
 
     print(f"\n{'='*64}")
-    print(f"  BACKTEST — current live logic vs past viral stocks")
+    print(f"  BACKTEST - current live logic vs past viral stocks")
     print(f"{'='*64}")
     print(f"  Trades       : {len(tdf)}")
     print(f"  Win rate     : {len(wins)/len(tdf):.0%}  ({len(wins)}W / {len(losses)}L)")

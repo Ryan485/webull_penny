@@ -393,7 +393,7 @@ class Portfolio:
                     round(100 * (trade.actual_risk / trade.planned_risk - 1), 1)
                     if trade.planned_risk > 0 else ""
                 ),
-                "version": config.STRATEGY_VERSION,
+                "version": config.OUTCOME_VERSION,
                 "commission": round(trade.commission, 2),
             }
             new_file = not os.path.exists(config.OUTCOMES_FILE)

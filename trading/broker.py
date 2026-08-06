@@ -203,7 +203,7 @@ class PaperBroker(BaseBroker):
     """Fully local simulation — no broker connection at all."""
 
     def __init__(self):
-        logger.info("Local paper broker — no orders sent anywhere")
+        logger.info("Local paper broker - no orders sent anywhere")
 
     def get_account_value(self) -> float:
         return config.ACCOUNT_SIZE
@@ -315,7 +315,7 @@ class AlpacaBroker(BaseBroker):
             err = str(e)
             if "42210000" in err or "cannot be sold short" in err:
                 logger.warning(
-                    f"Alpaca SELL {ticker}: no broker position (phantom entry) — forcing portfolio cleanup"
+                    f"Alpaca SELL {ticker}: no broker position (phantom entry) - forcing portfolio cleanup"
                 )
                 return True
             logger.error(f"Alpaca SELL failed {ticker}: {e}")

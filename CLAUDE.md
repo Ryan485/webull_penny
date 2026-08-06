@@ -71,6 +71,23 @@ Sister project: crypto bot at `C:\cashcow\crypto_kraken` (same architecture, Kra
   lows, resistance_breakout on the box top); bullish wedge excluded per
   owner. gap_bounce exists but is **retired from the live loop**
   (kept only in backtesting/engine.py).
+  box_range (박스권매매) added 2026-08-04 as an experiment and is **OFF by
+  default** — see the box-range entry in Validation.
+- `strategies/registry.py` — the ONLY place that decides which strategies run.
+  `main.py`, `backtest_viral.py` and `debug_entries.py` all call
+  `build_strategies()`, so live and sim can never disagree about the active set.
+  Flip it with `config.ENABLED_STRATEGIES` (env `ENABLED_STRATEGIES`,
+  comma-separated); default is the frozen three. Turning a strategy off does NOT
+  delete it — the class stays in `REGISTRY`, it just is not instantiated.
+  `REGISTRY` deliberately does NOT include `gap_bounce` — it is retired from the
+  live loop entirely, not just off by default, so `ENABLED_STRATEGIES=gap_bounce`
+  correctly raises instead of arming it (Codex NEW-RETIRED-GAP-BOUNCE-ACTIVATABLE,
+  2026-08-04); `backtesting/engine.py` keeps its own separate, hardcoded strategy
+  list that does not go through this registry, so gap_bounce stays available
+  there. An unknown or empty spec RAISES rather than arming nothing, because a bot that
+  scans and never trades looks exactly like a quiet day. `backtest_viral.py`
+  also takes `BT_TAG=<name>` so an experiment run cannot overwrite the baseline
+  trade CSV.
 - `trading/portfolio.py` — per-ticker daily caps (3 trades, 3 stops — raised
   from 2 stops 2026-07-16 after TGHL; the trade cap is the binding limit now),
   10-min cooldowns
@@ -221,6 +238,20 @@ of 1.53% while the median dip a trade had to survive before running was 3.9%,
 so 67% of stopped-out trades recovered above our entry. Raising STOP_ATR_MULT
 0.5 -> 1.0 was tested at the same time and REJECTED (made it worse; ATR-scaling
 is what fails on thin IEX names). See the month-1 review entry in Validation.
+**us-penny-v1.7-rewardguard-2026-08-05**: bumped as a SIDE EFFECT of the
+box_range experiment's Codex review (NEW-DEFAULT-STRATEGY-VERSION-NOT-BUMPED,
+2026-08-04), not a deliberate tuning change. `double_bottom`/`trend_reversal`'s
+resistance-capped targets (`RES_CAP_MIN_REWARD_R`, previously validated only at
+the candle close) and `resistance_breakout`'s equivalent are now revalidated
+against the LIVE broker quote and the post-`MIN_STOP_PCT`-floor stop
+immediately before submission (`Signal.min_reward_r`, `main.py`); a signal that
+cleared its 0.5R floor at the close can be skipped if quote drift or stop
+widening dropped it below that floor by the time of the fill. This changes
+which trades the DEFAULT set actually takes (previously: submitted anyway),
+so forward-test trades from here must not be pooled with v1.6's. Not yet
+backtested at scale post-bump -- box_range's own backtest comparison (see the
+box-range Validation entry) predates this change and is unaffected by it
+(box_range applies its own stricter pre-check inside `evaluate()` regardless).
 
 ## Validation status (as of 2026-07-06)
 - **1-year backtest** (`backtest_1y.py`, 2025-07→2026-07, 2,419 trades on historical
@@ -487,10 +518,41 @@ is what fails on thin IEX names). See the month-1 review entry in Validation.
   structurally biased toward tight stops. The live replay is the more relevant
   evidence for this specific question, but n=28 is small. The forward test
   settles it; if live does not improve, revert this first.
-- **Current phase:** forward-test v1.6 on paper. Watch (a) whether stop-outs
-  fall from 64%, (b) whether avg win rises from $162 toward the modeled $531,
-  (c) resistance_breakout trade count toward ~50 for the keep/cut decision.
-  Scoreboard is NET of fees - do not compare to the old gross figures.
+- **Box-range (박스권매매) tested and NOT ADOPTED (2026-08-04, owner
+  experiment):** owner asked to turn the three live strategies OFF and trade
+  only tested support/resistance levels — buy the box bottom, sell the box top,
+  levels counting only with 2+ touches. Built as `strategies/box_range.py`
+  (2+ touch support AND resistance, box must have CONTAINED every completed
+  close since both levels formed, entry only in the bottom third on a green bar
+  bouncing off a low that tagged support, stop under support, target = box top
+  as a real `take_profit`). Universe 205 ticker-days, 06-26 -> 08-04:
+  **baseline (frozen three) 169 trades +$27.5K PF 1.65** vs **box-only 11
+  trades -$471 PF 0.88**. Sweeps all made it worse or no better: looser
+  geometry (3% min height, 20-bar box, half-box entry zone) 20 trades -$1.8K
+  PF 0.78; lower reward floor 0.75R 17 trades -$1.4K PF 0.78; VWAP gate
+  ENFORCED only 3 trades (the box bottom is below VWAP by nature — same as the
+  early-W entry). Added ALONGSIDE the frozen three: 178 trades +$28.6K PF 1.63
+  (box 9 trades +$810) — i.e. +$1.1K PnL for -0.02 PF, inside noise on 9 trades.
+  WHY it fails, measured on real bars independent of exit rules: box trades'
+  median MFE +3.5% vs MAE -7.6% (0.46:1), WORSE than resistance_breakout's
+  0.6:1 from the month-1 review and far off double_bottom's 2.9:1. Every loser
+  stopped at exactly the 3% MIN_STOP_PCT floor, most within 1-3 minutes, with
+  MAE running -6.8% to -15.5%: support did not merely get tested, it collapsed.
+  The gate tally over sampled bars shows the structural reason — 638 bars had
+  no 2+ touch level at all and 375 had price outside any box. **A universe
+  selected for viral momentum is selected AGAINST being range-bound**, so
+  box-range is fighting the scanner. What DID work is the sell side: every
+  take-profit exit won (3/3 standalone, 5/5 loose, +$3.4K / +$4.8K), which is
+  the same sell-at-resistance rule double_bottom already applies via its
+  resistance-capped target. Kept in the repo, OFF by default; do not enable
+  without a materially different universe (range-bound / lower-volatility
+  names), which this scanner does not produce.
+- **Current phase:** forward-test v1.7 on paper (v1.6 findings below still
+  apply -- v1.7 only added the reward-drift guard, see the v1.7 changelog
+  entry). Watch (a) whether stop-outs fall from 64%, (b) whether avg win
+  rises from $162 toward the modeled $531, (c) resistance_breakout trade
+  count toward ~50 for the keep/cut decision. Scoreboard is NET of fees - do
+  not compare to the old gross figures.
 
 ## Go-live plan (decided, not yet started)
 - Webull Canada has **no API** (app-only) — that's why execution is Alpaca paper now.
@@ -505,3 +567,69 @@ is what fails on thin IEX names). See the month-1 review entry in Validation.
   PDT API fields (pattern_day_trader, daytrade_count, daytrading_buying_power, ...) —
   audited 2026-07-07, the bot never used them (sizing works off account equity).
 - At go-live, upgrade data: IBKR bundle (~$10/mo) or Alpaca SIP ($99/mo, zero code change).
+
+## Claude <-> Codex consensus review (added 2026-07-29)
+Every coding change goes through an unbounded two-agent review before it may be
+committed. Claude implements + tests, leaves everything UNCOMMITTED, and ends its
+message with `[CODEX_REVIEW_READY]` as the ENTIRE final non-empty line (the marker
+inside a code block, quotation, or earlier paragraph does NOT trigger).
+
+The Stop hook (`.claude/hooks/codex-review.ps1`) then:
+1. hashes every change that would enter the commit (manifest of raw file bytes,
+   so git's CRLF renormalization cannot make it nondeterministic; gitignored
+   files are excluded, so review artifacts never affect the hash);
+2. builds an IMMUTABLE snapshot worktree -- a clean HEAD checkout plus a
+   byte-exact copy of that manifest, built in TEMP so it cannot perturb the hash,
+   and self-verified by re-hashing it. Gitignored files (`.env`, `did.bin`,
+   `logs/`) are absent by construction, so Codex never sees credentials;
+3. runs `codex exec -s read-only -C <snapshot> -o <file>`. Use `exec`, NOT
+   `codex review`: `review` has no `-o`, so its verdict would have to be scraped
+   from stdout that contains the transcript of every command Codex ran -- and
+   `CODEX_REVIEW.md` itself contains literal `VERDICT:` lines, which would trip
+   the duplicate-verdict guard on every single round. `review` also exits 0 with
+   no verdict when there is nothing to review, and it reads the live tree
+   (exposing `.env`). All three verified empirically 2026-07-29;
+4. parses the verdict strictly -- missing, duplicated, non-integer, or
+   contradictory fields all count as CHANGES_REQUESTED;
+5. re-hashes afterwards and VOIDS the round if the tree moved during review.
+
+Once the marker is seen the gate FAILS CLOSED: auth failure, timeout, bad
+verdict, hash failure, missing handoff, a moved tree, or any exception blocks the
+turn and is reported. Every attempt appends to `.codex-reviews/audit.jsonl`; the
+owner-facing digest is `.codex-reviews/REVIEW-SUMMARY.md`. Codex's contract is
+`AGENTS.md`, which mandates reading `CODEX_REVIEW.md` in full.
+
+Rounds are UNLIMITED. `stop_hook_active` is deliberately NOT the terminator (it
+is true from round 2 onward and would cap the cycle at one round); it is used only
+to corroborate a loop, detect state desync, and warn when a turn ends with
+findings still open. The cycle pauses only when the fingerprint (diff + handoff +
+override + verdict + open count) repeats unchanged -- that is deadlock, never
+consensus, and it goes to the owner. Record owner rulings in
+`.codex-reviews/override.json`; that counts as progress and resumes the cycle.
+
+Consensus does NOT authorize a commit. The commit guard is **always on**: every
+`git commit` requires an APPROVED verdict, 0 open findings, an unconsumed owner
+authorization recorded by `.claude/hooks/authorize-commit.ps1`, and a tree that
+still matches the approved hash. `posttool-consume.ps1` consumes the
+authorization only when HEAD actually moved, then clears the verdict so the next
+commit needs a fresh review -- a failed or cancelled commit cannot authorize a
+later changed diff. Pushing needs its own separate authorization.
+These are WORKFLOW SAFEGUARDS, NOT a sandbox: they match command text and only
+govern tool calls made through Claude Code. The owner committing from their own
+terminal is unaffected -- that is the intended emergency escape hatch.
+Editing the repo is blocked while `.codex-reviews/review.lock` exists.
+
+Tests: `py -3.12 -m pytest tests -q` (`py -3.12 -m pip install -r
+requirements-dev.txt`). `tests/test_risk_invariants.py` locks the month-1
+findings: the 20% cost cap binding, `MIN_STOP_PCT` in both directions, the
+commission model's three regimes, and sim/live parity on the stop floor.
+RESOLVED (found 2026-07-29 as R1-INVALID-STOP, fixed same session): the
+finding above -- `calc_position_size` floored risk-per-share at $0.01 and
+returned `max(shares, 1)`, unable to reject a stop at or above entry, and
+`main.py` had no explicit `stop >= entry` guard, relying only on
+`MIN_STOP_PCT > 0` -- is fixed. `trading/risk_manager.stop_is_valid()` is now
+the explicit guard, checked in both `main.py` and `backtest_viral.py`
+immediately before sizing, and `calc_position_size` itself fails closed
+(returns 0) on an invalid stop rather than flooring it. `MIN_STOP_PCT=0` is
+now safe to set deliberately (the explicit guard covers it), not just
+tolerated. See `tests/test_risk_invariants.py`.

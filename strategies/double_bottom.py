@@ -32,7 +32,7 @@ from typing import Optional, Tuple
 
 import pandas as pd
 
-from strategies.base import BaseStrategy, Signal
+from strategies.base import BaseStrategy, Signal, build_capped_signal
 from strategies.resistance_breakout import find_overhead_resistance
 
 
@@ -174,14 +174,24 @@ RES_CAP_MIN_REWARD_R = 0.5       # if the capped reward is under 0.5R, no trade
 
 def _cap_target_at_resistance(df, close: float, stop: float, target: float,
                               atr: float = 0.0):
-    """Return (target, take_profit, room_ok)."""
+    """Return (target, take_profit, room_ok, min_reward_r).
+
+    min_reward_r is returned (not left for each caller to hardcode
+    separately) so every Signal(...) call site that unpacks this tuple gets
+    it structurally -- dropping it from an unpacking assignment is a
+    ValueError, not a silent missing kwarg (Codex NEW-CAPPED-TARGET-QUOTE-
+    DRIFT, round 5, 2026-08-05: three separate call sites in this file plus
+    two in trend_reversal.py each hardcoded `min_reward_r=RES_CAP_MIN_REWARD_R`
+    independently, and only one of the five was covered by a real-producer
+    regression test).
+    """
     res = find_overhead_resistance(df, close, atr)
     if res is None or res * RES_CAP_BUFFER >= target:
-        return target, False, True
+        return target, False, True, RES_CAP_MIN_REWARD_R
     capped = res * RES_CAP_BUFFER
     if capped - close < RES_CAP_MIN_REWARD_R * (close - stop):
-        return capped, True, False
-    return capped, True, True
+        return capped, True, False, RES_CAP_MIN_REWARD_R
+    return capped, True, True, RES_CAP_MIN_REWARD_R
 
 
 def _is_swing_low(lows, idx: int) -> bool:
@@ -291,14 +301,14 @@ class DoubleBottom(BaseStrategy):
                         ticker, self.name, 0, entry_price=close,
                         notes=f"w_stoch_gate(early,neck={neckline:.3f})",
                     )
-                target, tp, room = _cap_target_at_resistance(
+                cap_result = _cap_target_at_resistance(
                     df, close, stop, neckline + (neckline - l1), float(atr))
-                if not room:
+                if not cap_result[2]:   # room_ok
                     return Signal(
                         ticker, self.name, 0, entry_price=close,
-                        notes=f"w_no_room(early,res_target={target:.3f})",
+                        notes=f"w_no_room(early,res_target={cap_result[0]:.3f})",
                     )
-                return Signal(
+                return build_capped_signal(
                     ticker=ticker,
                     strategy=self.name,
                     score=5,
@@ -308,8 +318,7 @@ class DoubleBottom(BaseStrategy):
                         f"neck={neckline:.3f},bars={bars_since_low2})"
                     ),
                     stop_price=stop,
-                    target_price=target,
-                    take_profit=tp,
+                    cap_result=cap_result,
                     ignore_vwap=True,
                 )
 
@@ -340,14 +349,14 @@ class DoubleBottom(BaseStrategy):
                             notes=f"w_stoch_gate(retest,neck={neckline:.3f})",
                         )
                     rt_stop = pb_low - STOP_ATR_MULT * float(atr)
-                    target, tp, room = _cap_target_at_resistance(
+                    cap_result = _cap_target_at_resistance(
                         df, close, rt_stop, neckline + (neckline - l1), float(atr))
-                    if not room:
+                    if not cap_result[2]:   # room_ok
                         return Signal(
                             ticker, self.name, 0, entry_price=close,
-                            notes=f"w_no_room(retest,res_target={target:.3f})",
+                            notes=f"w_no_room(retest,res_target={cap_result[0]:.3f})",
                         )
-                    return Signal(
+                    return build_capped_signal(
                         ticker=ticker,
                         strategy=self.name,
                         score=5,
@@ -357,8 +366,7 @@ class DoubleBottom(BaseStrategy):
                             f"bars={(n - 1) - break_idx})"
                         ),
                         stop_price=rt_stop,
-                        target_price=target,
-                        take_profit=tp,
+                        cap_result=cap_result,
                     )
 
             return Signal(
@@ -390,15 +398,15 @@ class DoubleBottom(BaseStrategy):
         # Measured move from the NECKLINE, matching early/retest modes —
         # was close + (neckline - l1), which inflated the target by however
         # far entry sat above the neckline (review 2026-07-14).
-        target, tp, room = _cap_target_at_resistance(
+        cap_result = _cap_target_at_resistance(
             df, close, stop, neckline + (neckline - l1), float(atr))
-        if not room:
+        if not cap_result[2]:   # room_ok
             return Signal(
                 ticker, self.name, 0, entry_price=close,
-                notes=f"w_no_room(breakout,res_target={target:.3f})",
+                notes=f"w_no_room(breakout,res_target={cap_result[0]:.3f})",
             )
 
-        return Signal(
+        return build_capped_signal(
             ticker=ticker,
             strategy=self.name,
             score=5,
@@ -408,6 +416,5 @@ class DoubleBottom(BaseStrategy):
                 f"vol={vol/avg_vol:.1f}x)"
             ),
             stop_price=stop,
-            target_price=target,
-            take_profit=tp,
+            cap_result=cap_result,
         )
